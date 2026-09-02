@@ -9,6 +9,7 @@ interface Employee {
   id: string;
   name: string;
   department: string;
+  shiftId?: string;
 }
 
 interface Props {
@@ -41,17 +42,114 @@ const AdminLeaveFormModal: React.FC<Props> = ({ mode, leave, employees, onClose,
     });
   }, []);
 
-  // Auto-calc total days (simple calendar diff — admin can override)
-  useEffect(() => {
-    if (startDate && endDate) {
-      const s = new Date(startDate);
-      const e = new Date(endDate);
-      if (e >= s) {
-        const diff = Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-        setTotalDays(diff);
+  // Auto-calc total working days based on the employee's actual shift.
+// Supports WEEKLY, CYCLE and date-specific shift overrides.
+useEffect(() => {
+  let cancelled = false;
+
+  const calculateWorkingDays = async () => {
+    if (!startDate || !endDate || !employeeId) {
+      setTotalDays(0);
+      return;
+    }
+
+    const employee = employees.find(e => e.id === employeeId);
+    if (!employee) {
+      setTotalDays(0);
+      return;
+    }
+
+    const start = new Date(`${startDate}T00:00:00Z`);
+    const end = new Date(`${endDate}T00:00:00Z`);
+
+    if (end < start) {
+      setTotalDays(0);
+      return;
+    }
+
+    let count = 0;
+
+    for (
+      let dt = new Date(start);
+      dt <= end;
+      dt.setUTCDate(dt.getUTCDate() + 1)
+    ) {
+      const dateStr = dt.toISOString().split('T')[0];
+
+      const shift = await hrService.resolveShiftForEmployee(
+        employee.id,
+        employee.shiftId,
+        dateStr
+      );
+
+      if (!shift) continue;
+
+      let isWorkingDay = false;
+
+      if ((shift.scheduleType || 'WEEKLY') === 'CYCLE') {
+        if (
+          shift.cycleStartDate &&
+          shift.cycleWorkDays &&
+          shift.cycleOffDays
+        ) {
+          const current = new Date(`${dateStr}T00:00:00Z`);
+          const cycleStart = new Date(`${shift.cycleStartDate}T00:00:00Z`);
+
+          if (current >= cycleStart) {
+            const diffDays = Math.floor(
+              (current.getTime() - cycleStart.getTime()) / 86400000
+            );
+
+            const cycleLength =
+              shift.cycleWorkDays + shift.cycleOffDays;
+
+            const position =
+              ((diffDays % cycleLength) + cycleLength) % cycleLength;
+
+            isWorkingDay = position < shift.cycleWorkDays;
+          }
+        }
+      } else {
+        const DAY_NAME_MAP: Record<string, string> = {
+          MON: 'Monday',
+          TUE: 'Tuesday',
+          WED: 'Wednesday',
+          THU: 'Thursday',
+          FRI: 'Friday',
+          SAT: 'Saturday',
+          SUN: 'Sunday',
+        };
+
+        const dayName = new Date(
+          `${dateStr}T00:00:00Z`
+        ).toLocaleDateString('en-US', {
+          weekday: 'long',
+          timeZone: 'UTC',
+        });
+
+        const workingDays = (shift.workingDays || []).map(
+          d => DAY_NAME_MAP[d.toUpperCase()] || d
+        );
+
+        isWorkingDay = workingDays.includes(dayName);
+      }
+
+      if (isWorkingDay) {
+        count++;
       }
     }
-  }, [startDate, endDate]);
+
+    if (!cancelled) {
+      setTotalDays(count);
+    }
+  };
+
+  calculateWorkingDays();
+
+  return () => {
+    cancelled = true;
+  };
+}, [startDate, endDate, employeeId, employees]);
 
   const selectedEmployee = employees.find(e => e.id === employeeId);
 

@@ -266,7 +266,9 @@ const isShiftWorkingDate = (shift: Shift, dateStr: string): boolean => {
 
     const current = new Date(`${dateStr}T00:00:00Z`);
     const cycleStart = new Date(`${shift.cycleStartDate}T00:00:00Z`);
-
+if (current < cycleStart) {
+  return false;
+}
     const diffDays = Math.floor(
       (current.getTime() - cycleStart.getTime()) / 86400000
     );
@@ -290,7 +292,13 @@ const isShiftWorkingDate = (shift: Shift, dateStr: string): boolean => {
 
         for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
           const dateStr = dt.toISOString().split('T')[0];
-          const todayStr = new Date().toISOString().split('T')[0];
+          const nowLocal = new Date();
+const todayStr =
+  nowLocal.getFullYear() +
+  '-' +
+  String(nowLocal.getMonth() + 1).padStart(2, '0') +
+  '-' +
+  String(nowLocal.getDate()).padStart(2, '0');
 
 // Never generate ABSENT records for future dates
 if (dateStr > todayStr) continue;
@@ -309,7 +317,27 @@ const isWorkingDay = effectiveShift
   : globalWorkingDays.includes(dayName);
 
 if (!isWorkingDay) return;
+// Do not generate today's ABSENT until the employee's shift has ended
+if (dateStr === todayStr && effectiveShift) {
+  const [endHour, endMinute] = effectiveShift.endTime.split(':').map(Number);
 
+  const shiftEnd = new Date(
+    nowLocal.getFullYear(),
+    nowLocal.getMonth(),
+    nowLocal.getDate(),
+    endHour,
+    endMinute,
+    0,
+    0
+  );
+
+  // Overnight shift, e.g. 21:00 -> 06:00
+  if (effectiveShift.endTime <= effectiveShift.startTime) {
+    shiftEnd.setDate(shiftEnd.getDate() + 1);
+  }
+
+  if (nowLocal < shiftEnd) return;
+}
             const isPresent = presentSet.has(`${emp.id}_${dateStr}`);
             const isOnLeave = filteredLeaves.some(l =>
               l.employeeId === emp.id && l.status === 'APPROVED' &&

@@ -25,19 +25,36 @@ export const HRLeaveModule: React.FC<Props> = ({ requests, onRefresh, readOnly =
   const [activeTab, setActiveTab] = useState<Tab>('pending');
 
   // Admin CRUD state
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [editTarget, setEditTarget] = useState<LeaveRequest | null>(null);
-  const [employees, setEmployees] = useState<{ id: string; name: string; department: string }[]>([]);
+const [showCreateModal, setShowCreateModal] = useState(false);
+const [editTarget, setEditTarget] = useState<LeaveRequest | null>(null);
 
-  useEffect(() => {
-    const loadEmployees = async () => {
-      try {
-        const emps = await hrService.getEmployees();
-        setEmployees(emps.map(e => ({ id: e.id, name: e.name, department: e.department })));
-      } catch { /* ignore */ }
-    };
-    loadEmployees();
-  }, []);
+const [employees, setEmployees] = useState<{
+  id: string;
+  name: string;
+  department: string;
+  shiftId?: string;
+}[]>([]);
+
+useEffect(() => {
+  const loadEmployees = async () => {
+    try {
+      const emps = await hrService.getEmployees();
+
+      setEmployees(
+        emps.map(e => ({
+          id: e.id,
+          name: e.name,
+          department: e.department,
+          shiftId: e.shiftId
+        }))
+      );
+    } catch {
+      /* ignore */
+    }
+  };
+
+  loadEmployees();
+}, []);
 
   const pendingHR = requests.filter(r => r.status === 'PENDING_HR');
   const pendingCount = requests.filter(r => r.status === 'PENDING_HR' || r.status === 'PENDING_MANAGER').length;

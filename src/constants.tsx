@@ -105,6 +105,8 @@ export const DEFAULT_LEAVE_TYPES: CustomLeaveType[] = [
   { id: 'ANNUAL', name: 'Annual Leave', color: 'bg-primary', hasBalance: true },
   { id: 'CASUAL', name: 'Casual Leave', color: 'bg-emerald-500', hasBalance: true },
   { id: 'SICK', name: 'Sick Leave', color: 'bg-rose-500', hasBalance: true },
+  { id: 'DAY_OFF', name: 'Day Off', color: 'bg-sky-500', hasBalance: false },
+  { id: 'BUSINESS_TRIP', name: 'Business Trip', color: 'bg-violet-500', hasBalance: false },
   { id: 'MATERNITY', name: 'Maternity Leave', color: 'bg-pink-500', hasBalance: false },
   { id: 'PATERNITY', name: 'Paternity Leave', color: 'bg-indigo-500', hasBalance: false },
   { id: 'EARNED', name: 'Earned Leave', color: 'bg-amber-500', hasBalance: false },

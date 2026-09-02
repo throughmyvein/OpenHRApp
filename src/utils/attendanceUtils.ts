@@ -154,7 +154,9 @@ const isShiftWorkingDate = (shift: Shift, dateStr: string): boolean => {
 
     const current = new Date(`${dateStr}T00:00:00Z`);
     const cycleStart = new Date(`${shift.cycleStartDate}T00:00:00Z`);
-
+if (current < cycleStart) {
+  return false;
+}
     const diffDays = Math.floor(
       (current.getTime() - cycleStart.getTime()) / 86400000
     );
