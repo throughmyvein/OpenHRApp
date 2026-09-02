@@ -22,7 +22,32 @@ const DAY_NAME_MAP: Record<string, string> = {
 
 const normalizeWorkingDays = (days: string[]): string[] =>
   days.map(d => DAY_NAME_MAP[d.toUpperCase()] || d);
+const isShiftWorkingDate = (shift: Shift, dateStr: string): boolean => {
+  if ((shift.scheduleType || 'WEEKLY') === 'CYCLE') {
+    if (!shift.cycleStartDate || !shift.cycleWorkDays || !shift.cycleOffDays) {
+      return false;
+    }
 
+    const current = new Date(`${dateStr}T00:00:00Z`);
+    const cycleStart = new Date(`${shift.cycleStartDate}T00:00:00Z`);
+
+    const diffDays = Math.floor(
+      (current.getTime() - cycleStart.getTime()) / 86400000
+    );
+
+    const cycleLength = shift.cycleWorkDays + shift.cycleOffDays;
+    const position = ((diffDays % cycleLength) + cycleLength) % cycleLength;
+
+    return position < shift.cycleWorkDays;
+  }
+
+  const dayName = new Date(`${dateStr}T00:00:00Z`).toLocaleDateString(
+    'en-US',
+    { weekday: 'long', timeZone: 'UTC' }
+  );
+
+  return normalizeWorkingDays(shift.workingDays || []).includes(dayName);
+};
 const resolveWorkingDays = (config: AppConfig, employeeShift: Shift | null): string[] => {
   const raw = employeeShift ? employeeShift.workingDays : (config.workingDays || []);
   return normalizeWorkingDays(raw);
@@ -95,7 +120,10 @@ const EmployeeLeaveFlow: React.FC<Props> = ({ user, balance, history, onRefresh,
       const dateStr = iterator.toISOString().split('T')[0];
 
       // 1. Check if it is a defined Working Day (per-employee shift > global config)
-      const isWorkDay = workingDays.includes(dayName);
+
+const isWorkDay = employeeShift
+  ? isShiftWorkingDate(employeeShift, dateStr)
+  : workingDays.includes(dayName);      
 
       // 2. Check if it matches a Public Holiday
       const isPublicHoliday = holidays.some(h => h.date === dateStr);

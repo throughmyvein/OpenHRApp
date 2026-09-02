@@ -64,17 +64,50 @@ export const OrgShifts: React.FC<Props> = ({
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-1">
-                {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(day => {
-                  const fullDay = { Mon:'Monday', Tue:'Tuesday', Wed:'Wednesday', Thu:'Thursday', Fri:'Friday', Sat:'Saturday', Sun:'Sunday' }[day]!;
-                  const isActive = shift.workingDays.includes(fullDay);
-                  return (
-                    <span key={day} className={`text-[8px] font-semibold px-2 py-1 rounded-lg ${isActive ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-300'}`}>
-                      {day}
-                    </span>
-                  );
-                })}
-              </div>
+              {(shift.scheduleType || 'WEEKLY') === 'CYCLE' ? (
+  <div className="flex flex-wrap gap-2">
+    <span className="text-[8px] font-semibold px-2 py-1 rounded-lg bg-blue-50 text-blue-600">
+      {shift.cycleWorkDays ?? 2} ON
+    </span>
+    <span className="text-[8px] font-semibold px-2 py-1 rounded-lg bg-slate-100 text-slate-500">
+      {shift.cycleOffDays ?? 2} OFF
+    </span>
+    {shift.cycleStartDate && (
+      <span className="text-[8px] font-semibold px-2 py-1 rounded-lg bg-amber-50 text-amber-600">
+        Start: {shift.cycleStartDate}
+      </span>
+    )}
+  </div>
+) : (
+  <div className="flex flex-wrap gap-1">
+    {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(day => {
+      const fullDay = {
+        Mon:'Monday',
+        Tue:'Tuesday',
+        Wed:'Wednesday',
+        Thu:'Thursday',
+        Fri:'Friday',
+        Sat:'Saturday',
+        Sun:'Sunday'
+      }[day]!;
+
+      const isActive = shift.workingDays.includes(fullDay);
+
+      return (
+        <span
+          key={day}
+          className={`text-[8px] font-semibold px-2 py-1 rounded-lg ${
+            isActive
+              ? 'bg-emerald-50 text-emerald-600'
+              : 'bg-slate-100 text-slate-300'
+          }`}
+        >
+          {day}
+        </span>
+      );
+    })}
+  </div>
+)}
 
               <div className="flex items-center justify-between pt-2 border-t border-slate-100/50">
                 <div className="flex items-center gap-1 text-slate-400">

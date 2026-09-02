@@ -236,33 +236,65 @@ const Reports: React.FC<ReportsProps> = ({ user }) => {
         };
         const normDays = (days: string[]) => days.map(d => DAY_MAP[d.toUpperCase()] || d);
 
-        // Helper to resolve shift working days for an employee on a given date
-        const getWorkingDays = (emp: Employee, dateStr: string): string[] => {
-          // Check overrides first
-          const override = shiftOverrides.find(
-            (o: any) => o.employeeId === emp.id && dateStr >= o.startDate && dateStr <= o.endDate
-          );
-          if (override) {
-            const oShift = shifts.find(s => s.id === override.shiftId);
-            if (oShift) return normDays(oShift.workingDays);
-          }
-          // Employee assignment
-          if (emp.shiftId) {
-            const aShift = shifts.find(s => s.id === emp.shiftId);
-            if (aShift) return normDays(aShift.workingDays);
-          }
-          // Default shift
-          if (defaultShift) return normDays(defaultShift.workingDays);
-          // Global fallback (already full names from appConfig)
-          return globalWorkingDays;
-        };
+        // Resolve effective shift: override → employee shift → default shift
+const getEffectiveShift = (emp: Employee, dateStr: string): Shift | null => {
+  const override = shiftOverrides.find(
+    (o: any) =>
+      o.employeeId === emp.id &&
+      dateStr >= o.startDate &&
+      dateStr <= o.endDate
+  );
+
+  if (override) {
+    const oShift = shifts.find(s => s.id === override.shiftId);
+    if (oShift) return oShift;
+  }
+
+  if (emp.shiftId) {
+    const aShift = shifts.find(s => s.id === emp.shiftId);
+    if (aShift) return aShift;
+  }
+
+  return defaultShift || null;
+};
+
+const isShiftWorkingDate = (shift: Shift, dateStr: string): boolean => {
+  if ((shift.scheduleType || 'WEEKLY') === 'CYCLE') {
+    if (!shift.cycleStartDate || !shift.cycleWorkDays || !shift.cycleOffDays) {
+      return false;
+    }
+
+    const current = new Date(`${dateStr}T00:00:00Z`);
+    const cycleStart = new Date(`${shift.cycleStartDate}T00:00:00Z`);
+
+    const diffDays = Math.floor(
+      (current.getTime() - cycleStart.getTime()) / 86400000
+    );
+
+    const cycleLength = shift.cycleWorkDays + shift.cycleOffDays;
+    const position = ((diffDays % cycleLength) + cycleLength) % cycleLength;
+
+    return position < shift.cycleWorkDays;
+  }
+
+  const dayName = new Date(`${dateStr}T00:00:00Z`).toLocaleDateString(
+    'en-US',
+    { weekday: 'long', timeZone: 'UTC' }
+  );
+
+  return normDays(shift.workingDays || []).includes(dayName);
+};
 
         // Use a set for quick lookup
         const presentSet = new Set(combinedData.map(d => `${d.employeeId}_${d.date}`));
 
         for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
           const dateStr = dt.toISOString().split('T')[0];
-          const dayName = dt.toLocaleDateString('en-US', { weekday: 'long' });
+          const todayStr = new Date().toISOString().split('T')[0];
+
+// Never generate ABSENT records for future dates
+if (dateStr > todayStr) continue;
+const dayName = dt.toLocaleDateString('en-US', { weekday: 'long' });
           const isHoliday = holidays.some(h => h.date === dateStr);
 
           if (isHoliday) continue;
@@ -270,8 +302,13 @@ const Reports: React.FC<ReportsProps> = ({ user }) => {
           targetEmployees.forEach(emp => {
             if (emp.joiningDate && emp.joiningDate > dateStr) return;
 
-            const empWorkingDays = getWorkingDays(emp, dateStr);
-            if (!empWorkingDays.includes(dayName)) return;
+            const effectiveShift = getEffectiveShift(emp, dateStr);
+
+const isWorkingDay = effectiveShift
+  ? isShiftWorkingDate(effectiveShift, dateStr)
+  : globalWorkingDays.includes(dayName);
+
+if (!isWorkingDay) return;
 
             const isPresent = presentSet.has(`${emp.id}_${dateStr}`);
             const isOnLeave = filteredLeaves.some(l =>

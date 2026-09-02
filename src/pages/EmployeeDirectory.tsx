@@ -73,8 +73,18 @@ interface EmployeeDirectoryProps {
 
 const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({ user, selectedEmployeeId }) => {
   const { showToast } = useToast();
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'HR';
-  const isManager = user?.role === 'MANAGER' || user?.role === 'TEAM_LEAD';
+  const canViewAllEmployees =
+  user?.role === 'ADMIN' ||
+  user?.role === 'HR' ||
+  user?.role === 'MANAGEMENT';
+
+const canManageEmployees =
+  user?.role === 'ADMIN' ||
+  user?.role === 'HR';
+
+const isManager =
+  user?.role === 'MANAGER' ||
+  user?.role === 'TEAM_LEAD';
 
   // Subscription check
   const { canPerformAction } = useSubscription();
@@ -122,17 +132,18 @@ const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({ user, selectedEmp
       
       let filteredData = data;
       
-      if (!isAdmin) {
+      if (!canViewAllEmployees) {
         if (isManager) {
           // STRICT MANAGER LOGIC: 
           // 1. Find teams where I am the Leader
           const myLedTeamIds = teamsList.filter(t => t.leaderId === user.id).map(t => t.id);
           
           // 2. Show employees who are in those teams OR report directly to me
-          filteredData = data.filter(e => 
-            (e.teamId && myLedTeamIds.includes(e.teamId)) || 
-            (e.lineManagerId === user.id)
-          );
+          filteredData = data.filter(e =>
+  e.id === user.id ||
+  (e.teamId && myLedTeamIds.includes(e.teamId)) ||
+  (e.lineManagerId === user.id)
+);
         } else {
           // EMPLOYEE LOGIC: Only see teammates (Peers)
           filteredData = data.filter(e => user.teamId && e.teamId === user.teamId);
@@ -150,7 +161,7 @@ const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({ user, selectedEmp
   useEffect(() => {
     const loadInitialData = async () => {
       await fetchEmployees();
-      if (isAdmin) {
+      if (canViewAllEmployees) {
         const [departmentsList, designationsList, shiftsList] = await Promise.all([
           hrService.getDepartments(),
           hrService.getDesignations(),
@@ -172,7 +183,7 @@ const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({ user, selectedEmp
       fetchEmployees();
     });
     return () => { unsubscribe(); };
-  }, [isAdmin, isManager, user?.teamId, user?.id]);
+  }, [canViewAllEmployees, isManager, user?.teamId, user?.id]);
 
   // Deep link: open employee detail modal when selectedEmployeeId is provided
   useEffect(() => {
@@ -245,7 +256,7 @@ const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({ user, selectedEmp
   };
 
   const handleOpenAdd = () => {
-    if (!isAdmin) return;
+    if (!canManageEmployees) return;
     setEditingId(null);
     setFormError(null);
     const defaultShift = shifts.find(s => s.isDefault);
@@ -267,7 +278,7 @@ const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({ user, selectedEmp
   };
 
   const handleOpenEdit = (emp: Employee) => {
-    if (!isAdmin) return;
+    if (!canManageEmployees) return;
     setEditingId(emp.id);
     setFormError(null);
     
@@ -297,17 +308,17 @@ const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({ user, selectedEmp
   };
 
   const handleDelete = (emp: Employee) => {
-    if (!isAdmin) return;
+    if (!canManageEmployees) return;
     setConfirmAction({ type: 'delete', employee: emp });
   };
 
   const handleOffboard = (emp: Employee) => {
-    if (!isAdmin) return;
+    if (!canManageEmployees) return;
     setConfirmAction({ type: 'offboard', employee: emp });
   };
 
   const handleReactivate = (emp: Employee) => {
-    if (!isAdmin) return;
+    if (!canManageEmployees) return;
     setConfirmAction({ type: 'reactivate', employee: emp });
   };
 
@@ -339,7 +350,7 @@ const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({ user, selectedEmp
   };
 
   const handleActivate = async (emp: Employee) => {
-    if (!isAdmin) return;
+    if (!canManageEmployees) return;
     if (!confirm(`Activate ${emp.name}'s account? This confirms their email so they can log in immediately.`)) return;
     const result = await hrService.activateUser(emp.id);
     if (result.success) {
@@ -352,7 +363,7 @@ const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({ user, selectedEmp
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAdmin) return;
+    if (!canManageEmployees) return;
     setIsSubmitting(true);
     setFormError(null);
 
@@ -554,15 +565,19 @@ const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({ user, selectedEmp
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-3xl font-semibold text-slate-900 tracking-tight">
-              {isAdmin ? 'Organization Directory' : (isManager ? 'My Team & Reports' : 'My Teammates')}
+              {canViewAllEmployees ? 'Organization Directory' : (isManager ? 'My Team & Reports' : 'My Teammates')}
             </h1>
             <HelpButton helpPointId="employees.directory" />
           </div>
           <p className="text-sm text-slate-500 font-medium tracking-tight">
-            {isAdmin ? `Managing ${employees.length} personnel accounts.` : `Viewing ${employees.length} members within your scope.`}
+            {canManageEmployees
+  ? `Managing ${employees.length} personnel accounts.`
+  : canViewAllEmployees
+    ? `Viewing ${employees.length} personnel across the organization.`
+    : `Viewing ${employees.length} members within your scope.`}
           </p>
         </div>
-        {isAdmin && (
+        {canManageEmployees && (
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setShowDeptFilter(!showDeptFilter)}
@@ -605,7 +620,7 @@ const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({ user, selectedEmp
         )}
       </div>
 
-      {isAdmin && showDeptFilter && depts.length > 0 && (
+      {canViewAllEmployees && showDeptFilter && depts.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 animate-in slide-in-from-top-2 duration-300">
           <div className="flex items-center justify-between mb-3 px-1">
             <p className="text-[10px] font-semibold uppercase text-slate-400 tracking-widest">
@@ -695,7 +710,7 @@ const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({ user, selectedEmp
                   </div>
                 </div>
                 {/* Action buttons on their own row so names never break */}
-                {isAdmin && (
+                {canManageEmployees && (
                   <div className="flex gap-0.5 mt-2 bg-slate-50/80 p-1 rounded-lg self-start" onClick={(e) => e.stopPropagation()}>
                     {!emp.verified && (
                       <button onClick={() => handleActivate(emp)} title="Verify & activate account" className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-all"><BadgeCheck size={14} /></button>
@@ -806,7 +821,7 @@ const EmployeeDirectory: React.FC<EmployeeDirectoryProps> = ({ user, selectedEmp
       )}
 
       {/* Admin Management Modal */}
-      {showModal && isAdmin && (
+      {showModal && canManageEmployees && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-3xl shadow-xl overflow-hidden animate-in zoom-in duration-300">
             <div className="bg-primary p-8 flex justify-between items-center text-white">

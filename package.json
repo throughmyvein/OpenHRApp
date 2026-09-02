@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/generate-sitemap.mjs && node scripts/generate-feed.mjs && node scripts/generate-llms.mjs",
+    "build": "vite build",
     "sitemap": "node scripts/generate-sitemap.mjs",
     "feed": "node scripts/generate-feed.mjs",
     "llms": "node scripts/generate-llms.mjs",

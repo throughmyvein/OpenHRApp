@@ -37,18 +37,18 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate, onLogout, ro
   ];
 
   const regularMenuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
-    { id: 'profile', label: 'My Profile', icon: UserCircle, roles: ['ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
-    { id: 'attendance-logs', label: 'My Attendance', icon: History, roles: ['ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
-    { id: 'attendance-audit', label: 'Attendance Audit', icon: List, roles: ['ADMIN', 'HR', 'MANAGER'] },
-    { id: 'leave', label: 'Leave', icon: CalendarDays, roles: ['ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
-    { id: 'announcements', label: 'Announcements', icon: Megaphone, roles: ['ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
-    { id: 'admin-notifications', label: 'Notifications', icon: Bell, roles: ['ADMIN', 'HR'] },
-    { id: 'employees', label: 'Team Directory', icon: Users, roles: ['ADMIN', 'HR', 'MANAGER'] },
-    { id: 'performance-review', label: 'Performance', icon: ClipboardCheck, roles: ['ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
-    { id: 'organization', label: 'Organization', icon: Network, roles: ['ADMIN', 'HR'] },
-    { id: 'reports', label: 'Reports', icon: BarChart3, roles: ['ADMIN', 'HR'] },
-    { id: 'settings', label: 'Settings', icon: Settings, roles: ['ADMIN', 'HR'] },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD', 'EMPLOYEE'] },
+{ id: 'profile', label: 'My Profile', icon: UserCircle, roles: ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD', 'EMPLOYEE'] },
+{ id: 'attendance-logs', label: 'My Attendance', icon: History, roles: ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD', 'EMPLOYEE'] },
+{ id: 'attendance-audit', label: 'Attendance Audit', icon: List, roles: ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER'] },
+{ id: 'leave', label: 'Leave', icon: CalendarDays, roles: ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD', 'EMPLOYEE'] },
+{ id: 'announcements', label: 'Announcements', icon: Megaphone, roles: ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD', 'EMPLOYEE'] },
+{ id: 'admin-notifications', label: 'Notifications', icon: Bell, roles: ['ADMIN', 'HR'] },
+{ id: 'employees', label: 'Team Directory', icon: Users, roles: ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD'] },
+{ id: 'performance-review', label: 'Performance', icon: ClipboardCheck, roles: ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD', 'EMPLOYEE'] },
+{ id: 'organization', label: 'Organization', icon: Network, roles: ['ADMIN', 'HR'] },
+{ id: 'reports', label: 'Reports', icon: BarChart3, roles: ['ADMIN', 'MANAGEMENT', 'HR'] },
+{ id: 'settings', label: 'Settings', icon: Settings, roles: ['ADMIN', 'HR'] },
   ];
 
   const menuItems = isSuperAdmin ? superAdminMenuItems : regularMenuItems;

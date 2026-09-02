@@ -73,7 +73,21 @@ const Organization: React.FC<OrganizationProps> = ({ initialTab }) => {
   const [leaveTypes, setLeaveTypes] = useState<CustomLeaveType[]>([]);
   const [overrideForm, setOverrideForm] = useState<Record<string, any>>({ employeeId: '' });
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(new Set());
-  const [shiftForm, setShiftForm] = useState<Partial<Shift>>({ name: '', startTime: '09:00', endTime: '18:00', lateGracePeriod: 5, earlyOutGracePeriod: 15, earliestCheckIn: '06:00', autoSessionCloseTime: '23:59', workingDays: ['Monday','Tuesday','Wednesday','Thursday','Sunday'], isDefault: false });
+  const [shiftForm, setShiftForm] = useState<Partial<Shift>>({
+  name: '',
+  startTime: '09:00',
+  endTime: '18:00',
+  lateGracePeriod: 5,
+  earlyOutGracePeriod: 5,
+  earliestCheckIn: '08:00',
+  autoSessionCloseTime: '23:59',
+  workingDays: ['Monday','Tuesday','Wednesday','Thursday','Friday'],
+  scheduleType: 'WEEKLY',
+  cycleWorkDays: 2,
+  cycleOffDays: 2,
+  cycleStartDate: '',
+  isDefault: false
+});
   const [shiftOverrideForm, setShiftOverrideForm] = useState({ employeeId: '', shiftId: '', startDate: '', endDate: '', reason: '' });
   const [memberSearch, setMemberSearch] = useState('');
 
@@ -103,7 +117,21 @@ const Organization: React.FC<OrganizationProps> = ({ initialTab }) => {
       if (index !== null) {
         setShiftForm({ ...shifts[index] });
       } else {
-        setShiftForm({ name: '', startTime: '09:00', endTime: '18:00', lateGracePeriod: 5, earlyOutGracePeriod: 15, earliestCheckIn: '06:00', autoSessionCloseTime: '23:59', workingDays: ['Monday','Tuesday','Wednesday','Thursday','Sunday'], isDefault: false });
+        setShiftForm({
+  name: '',
+  startTime: '09:00',
+  endTime: '18:00',
+  lateGracePeriod: 5,
+  earlyOutGracePeriod: 5,
+  earliestCheckIn: '08:00',
+  autoSessionCloseTime: '23:59',
+  workingDays: ['Monday','Tuesday','Wednesday','Thursday','Friday'],
+  scheduleType: 'WEEKLY',
+  cycleWorkDays: 2,
+  cycleOffDays: 2,
+  cycleStartDate: '',
+  isDefault: false
+});
       }
     } else if (type === 'SHIFT_OVERRIDE') {
       setShiftOverrideForm({ employeeId: '', shiftId: shifts[0]?.id || '', startDate: '', endDate: '', reason: '' });
@@ -358,9 +386,20 @@ const Organization: React.FC<OrganizationProps> = ({ initialTab }) => {
               )}
 
               {modalType === 'HOLIDAY' && (
-                 <div className="space-y-4">
-                    <div className="space-y-1"><label className="text-[10px] font-semibold text-slate-400 uppercase px-1">Holiday Name</label><input required className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold focus:ring-4 focus:ring-primary-light transition-all" value={holidayForm.name} onChange={e => setHolidayForm({...holidayForm, name: e.target.value})} /></div>
-                    <div className="grid grid-cols-2 gap-4">
+  <div className="space-y-4">
+    <div className="space-y-1">
+      <label className="text-[10px] font-semibold text-slate-400 uppercase px-1">
+        Holiday Name
+      </label>
+      <input
+        required
+        className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold focus:ring-4 focus:ring-primary-light transition-all"
+        value={holidayForm.name}
+        onChange={e => setHolidayForm({...holidayForm, name: e.target.value})}
+      />
+    </div>
+
+    <div className="grid grid-cols-2 gap-4">
                        <div className="space-y-1"><label className="text-[10px] font-semibold text-slate-400 uppercase px-1">Date</label><input type="date" required className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={holidayForm.date} onChange={e => setHolidayForm({...holidayForm, date: e.target.value})} /></div>
                        <div className="space-y-1"><label className="text-[10px] font-semibold text-slate-400 uppercase px-1">Type</label><select className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={holidayForm.type} onChange={e => setHolidayForm({...holidayForm, type: e.target.value as any})}><option value="NATIONAL">National</option><option value="FESTIVAL">Festival</option><option value="ISLAMIC">Islamic</option></select></div>
                     </div>
@@ -429,6 +468,24 @@ const Organization: React.FC<OrganizationProps> = ({ initialTab }) => {
 
               {modalType === 'SHIFT' && (
                 <div className="space-y-4">
+ <div className="space-y-1">
+      <label className="text-[10px] font-semibold text-slate-400 uppercase px-1">
+        Schedule Type
+      </label>
+      <select
+        className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold"
+        value={shiftForm.scheduleType || 'WEEKLY'}
+        onChange={e =>
+          setShiftForm({
+            ...shiftForm,
+            scheduleType: e.target.value as 'WEEKLY' | 'CYCLE'
+          })
+        }
+      >
+        <option value="WEEKLY">Weekly Schedule (5/2 etc.)</option>
+        <option value="CYCLE">Rotating Cycle (2/2 etc.)</option>
+      </select>
+    </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-semibold text-slate-400 uppercase px-1">Shift Name</label>
                     <input required className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold focus:ring-4 focus:ring-primary-light transition-all" value={shiftForm.name} onChange={e => setShiftForm({...shiftForm, name: e.target.value})} />
@@ -463,27 +520,97 @@ const Organization: React.FC<OrganizationProps> = ({ initialTab }) => {
                       <input type="time" className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={shiftForm.autoSessionCloseTime} onChange={e => setShiftForm({...shiftForm, autoSessionCloseTime: e.target.value})} />
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-semibold text-slate-400 uppercase px-1">Working Days</label>
-                    <div className="flex flex-wrap gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                      {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(day => (
-                        <button
-                          key={day}
-                          type="button"
-                          onClick={() => {
-                            const days = shiftForm.workingDays || [];
-                            setShiftForm({
-                              ...shiftForm,
-                              workingDays: days.includes(day) ? days.filter(d => d !== day) : [...days, day]
-                            });
-                          }}
-                          className={`px-3 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${(shiftForm.workingDays || []).includes(day) ? 'bg-emerald-500 text-white' : 'bg-white text-slate-400 border border-slate-200'}`}
-                        >
-                          {day.slice(0, 3)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  {(shiftForm.scheduleType || 'WEEKLY') === 'WEEKLY' ? (
+  <div className="space-y-1">
+    <label className="text-[10px] font-semibold text-slate-400 uppercase px-1">
+      Working Days
+    </label>
+    <div className="flex flex-wrap gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+      {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(day => (
+        <button
+          key={day}
+          type="button"
+          onClick={() => {
+            const days = shiftForm.workingDays || [];
+            setShiftForm({
+              ...shiftForm,
+              workingDays: days.includes(day)
+                ? days.filter(d => d !== day)
+                : [...days, day]
+            });
+          }}
+          className={`px-3 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${
+            (shiftForm.workingDays || []).includes(day)
+              ? 'bg-emerald-500 text-white'
+              : 'bg-white text-slate-400 border border-slate-200'
+          }`}
+        >
+          {day.slice(0, 3)}
+        </button>
+      ))}
+    </div>
+  </div>
+) : (
+  <div className="space-y-3">
+    <div className="grid grid-cols-2 gap-4">
+      <div className="space-y-1">
+        <label className="text-[10px] font-semibold text-slate-400 uppercase px-1">
+          Work Days
+        </label>
+        <input
+          type="number"
+          min="1"
+          required
+          className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold"
+          value={shiftForm.cycleWorkDays ?? 2}
+          onChange={e =>
+            setShiftForm({
+              ...shiftForm,
+              cycleWorkDays: Math.max(1, parseInt(e.target.value) || 1)
+            })
+          }
+        />
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-[10px] font-semibold text-slate-400 uppercase px-1">
+          Off Days
+        </label>
+        <input
+          type="number"
+          min="1"
+          required
+          className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold"
+          value={shiftForm.cycleOffDays ?? 2}
+          onChange={e =>
+            setShiftForm({
+              ...shiftForm,
+              cycleOffDays: Math.max(1, parseInt(e.target.value) || 1)
+            })
+          }
+        />
+      </div>
+    </div>
+
+    <div className="space-y-1">
+      <label className="text-[10px] font-semibold text-slate-400 uppercase px-1">
+        First Working Day of Cycle
+      </label>
+      <input
+        type="date"
+        required
+        className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold"
+        value={shiftForm.cycleStartDate || ''}
+        onChange={e =>
+          setShiftForm({
+            ...shiftForm,
+            cycleStartDate: e.target.value
+          })
+        }
+      />
+    </div>
+  </div>
+)}
                   <label className="flex items-center gap-3 p-3 bg-amber-50 rounded-xl border border-amber-100 cursor-pointer">
                     <input type="checkbox" checked={shiftForm.isDefault || false} onChange={e => setShiftForm({...shiftForm, isDefault: e.target.checked})} className="w-4 h-4 accent-amber-500" />
                     <span className="text-xs font-bold text-amber-700">Set as Default Shift (auto-assigned to new employees)</span>

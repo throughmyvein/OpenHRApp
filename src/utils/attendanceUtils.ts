@@ -142,7 +142,41 @@ const DAY_NAME_MAP: Record<string, string> = {
 
 const normalizeWorkingDays = (days: string[]): string[] =>
   days.map(d => DAY_NAME_MAP[d.toUpperCase()] || d);
+const isShiftWorkingDate = (shift: Shift, dateStr: string): boolean => {
+  if ((shift.scheduleType || 'WEEKLY') === 'CYCLE') {
+    if (
+      !shift.cycleStartDate ||
+      !shift.cycleWorkDays ||
+      !shift.cycleOffDays
+    ) {
+      return false;
+    }
 
+    const current = new Date(`${dateStr}T00:00:00Z`);
+    const cycleStart = new Date(`${shift.cycleStartDate}T00:00:00Z`);
+
+    const diffDays = Math.floor(
+      (current.getTime() - cycleStart.getTime()) / 86400000
+    );
+
+    const cycleLength = shift.cycleWorkDays + shift.cycleOffDays;
+
+    const position =
+      ((diffDays % cycleLength) + cycleLength) % cycleLength;
+
+    return position < shift.cycleWorkDays;
+  }
+
+  const dayName = new Date(`${dateStr}T00:00:00Z`).toLocaleDateString(
+    'en-US',
+    {
+      weekday: 'long',
+      timeZone: 'UTC',
+    }
+  );
+
+  return normalizeWorkingDays(shift.workingDays || []).includes(dayName);
+};
 /**
  * Counts working days for a specific employee in the given period.
  * Respects employee's assigned shift → override → default shift → global config.
@@ -160,42 +194,62 @@ export const getWorkingDaysInPeriod = (
   const globalWorkingDays = normalizeWorkingDays(appConfig.workingDays || []);
   const defaultShift = shifts.find(s => s.isDefault);
 
-  // Build a map of dateStr → normalized workingDays for quick lookup
-  const resolveWorkingDays = (dateStr: string): string[] => {
-    // Check overrides first
-    const override = shiftOverrides.find(
-      o => o.employeeId === emp.id && dateStr >= o.startDate && dateStr <= o.endDate
-    );
-    if (override) {
-      const oShift = shifts.find(s => s.id === override.shiftId);
-      if (oShift) return normalizeWorkingDays(oShift.workingDays);
-    }
-    // Employee assignment
-    if (emp.shiftId) {
-      const aShift = shifts.find(s => s.id === emp.shiftId);
-      if (aShift) return normalizeWorkingDays(aShift.workingDays);
-    }
-    // Default shift
-    if (defaultShift) return normalizeWorkingDays(defaultShift.workingDays);
-    // Global fallback
-    return globalWorkingDays;
-  };
+  // Resolve the effective shift for a specific date.
+// Priority: override → employee shift → default shift.
+const resolveShift = (dateStr: string): Shift | null => {
+  const override = shiftOverrides.find(
+    o =>
+      o.employeeId === emp.id &&
+      dateStr >= o.startDate &&
+      dateStr <= o.endDate
+  );
+
+  if (override) {
+    const overrideShift = shifts.find(s => s.id === override.shiftId);
+    if (overrideShift) return overrideShift;
+  }
+
+  if (emp.shiftId) {
+    const assignedShift = shifts.find(s => s.id === emp.shiftId);
+    if (assignedShift) return assignedShift;
+  }
+
+  return defaultShift || null;
+};
 
   const holidaySet = new Set(holidays.map(h => h.date));
   let count = 0;
   const start = new Date(startDate);
-  const end = new Date(endDate);
+const end = new Date(endDate);
 
-  for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
-    const dateStr = dt.toISOString().split('T')[0];
-    const dayName = dt.toLocaleDateString('en-US', { weekday: 'long' });
+const now = new Date();
+const todayStr =
+  now.getFullYear() +
+  '-' +
+  String(now.getMonth() + 1).padStart(2, '0') +
+  '-' +
+  String(now.getDate()).padStart(2, '0');
 
+for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
+  const dateStr = dt.toISOString().split('T')[0];
+
+  // Never count future dates
+  if (dateStr > todayStr) continue;
     if (holidaySet.has(dateStr)) continue;
 
-    const workingDays = resolveWorkingDays(dateStr);
-    if (workingDays.includes(dayName)) {
-      count++;
-    }
+const effectiveShift = resolveShift(dateStr);
+
+if (effectiveShift) {
+  if (isShiftWorkingDate(effectiveShift, dateStr)) {
+    count++;
+  }
+} else {
+  const dayName = dt.toLocaleDateString('en-US', { weekday: 'long' });
+
+  if (globalWorkingDays.includes(dayName)) {
+    count++;
+  }
+}
   }
 
   return count;
@@ -237,13 +291,13 @@ export const calculateEmployeeSummaries = (params: {
   const lateMap = new Map<string, Set<string>>();
   const absentMap = new Map<string, Set<string>>();
   const halfDayMap = new Map<string, Set<string>>();
-  // Track all dates that have ANY attendance record per employee (for gap analysis)
+
+  // Track all dates that have ANY attendance record per employee
   const recordedDateMap = new Map<string, Set<string>>();
 
   for (const rec of consolidatedAttendance) {
     if (rec.date < startDate || rec.date > endDate) continue;
 
-    // Track that this employee has a record for this date
     const dateSet = recordedDateMap.get(rec.employeeId) || new Set();
     dateSet.add(rec.date);
     recordedDateMap.set(rec.employeeId, dateSet);
@@ -270,11 +324,12 @@ export const calculateEmployeeSummaries = (params: {
   // Build holiday set
   const holidaySet = new Set(holidays.map(h => h.date));
 
-  // Build leave-affected date set per employee (working days covered by approved leave)
+  // Build leave-affected date set per employee
   const leaveDateMap = new Map<string, Set<string>>();
 
   for (const lv of approvedLeaves) {
     if (lv.status !== 'APPROVED') continue;
+
     const emp = employees.find(e => e.id === lv.employeeId);
     if (!emp || emp.status !== 'ACTIVE') continue;
     if (selectedDepts.length > 0 && !selectedDepts.includes(emp.department || '')) continue;
@@ -284,6 +339,7 @@ export const calculateEmployeeSummaries = (params: {
       new Date(lv.startDate.split(' ')[0]).getTime(),
       new Date(startDate).getTime()
     ));
+
     const lEnd = new Date(Math.min(
       new Date(lv.endDate.split(' ')[0]).getTime(),
       new Date(endDate).getTime()
@@ -291,26 +347,36 @@ export const calculateEmployeeSummaries = (params: {
 
     for (let dt = new Date(lStart); dt <= lEnd; dt.setDate(dt.getDate() + 1)) {
       const dateStr = dt.toISOString().split('T')[0];
-      const dayName = dt.toLocaleDateString('en-US', { weekday: 'long' });
+
       if (holidaySet.has(dateStr)) continue;
 
-      // Check if this date is a working day for this employee
       const override = shiftOverrides.find(
-        o => o.employeeId === emp.id && dateStr >= o.startDate && dateStr <= o.endDate
+        o =>
+          o.employeeId === emp.id &&
+          dateStr >= o.startDate &&
+          dateStr <= o.endDate
       );
-      let empWorkingDays: string[];
+
+      let effectiveShift: Shift | null = null;
+
       if (override) {
-        const oShift = shifts.find(s => s.id === override.shiftId);
-        empWorkingDays = oShift ? normalizeWorkingDays(oShift.workingDays) : [];
+        effectiveShift = shifts.find(s => s.id === override.shiftId) || null;
       } else if (emp.shiftId) {
-        const aShift = shifts.find(s => s.id === emp.shiftId);
-        empWorkingDays = aShift ? normalizeWorkingDays(aShift.workingDays) : [];
+        effectiveShift = shifts.find(s => s.id === emp.shiftId) || null;
       } else {
-        const defShift = shifts.find(s => s.isDefault);
-        empWorkingDays = defShift ? normalizeWorkingDays(defShift.workingDays) : normalizeWorkingDays(appConfig.workingDays || []);
+        effectiveShift = shifts.find(s => s.isDefault) || null;
       }
 
-      if (empWorkingDays.includes(dayName)) {
+      let isWorkingDay = false;
+
+      if (effectiveShift) {
+        isWorkingDay = isShiftWorkingDate(effectiveShift, dateStr);
+      } else {
+        const dayName = dt.toLocaleDateString('en-US', { weekday: 'long' });
+        isWorkingDay = normalizeWorkingDays(appConfig.workingDays || []).includes(dayName);
+      }
+
+      if (isWorkingDay) {
         const set = leaveDateMap.get(emp.id) || new Set();
         set.add(dateStr);
         leaveDateMap.set(emp.id, set);
@@ -328,42 +394,87 @@ export const calculateEmployeeSummaries = (params: {
     // This ensures totalWorkingDays, present, absent, late, and leave always add up consistently.
     const empRecordedDates = recordedDateMap.get(emp.id) || new Set();
     let totalWorkingDays = 0;
-    let gapAbsentDays = 0;
+let gapAbsentDays = 0;
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
+const start = new Date(startDate);
+const end = new Date(endDate);
+const now = new Date();
+const todayStr =
+  now.getFullYear() +
+  '-' +
+  String(now.getMonth() + 1).padStart(2, '0') +
+  '-' +
+  String(now.getDate()).padStart(2, '0');
+
+for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
       const dateStr = dt.toISOString().split('T')[0];
-      const dayName = dt.toLocaleDateString('en-US', { weekday: 'long' });
 
-      if (holidaySet.has(dateStr)) continue;
-      if (emp.joiningDate && emp.joiningDate > dateStr) continue;
+// Future dates must not participate in the summary
+if (dateStr > todayStr) continue;
 
-      // Resolve working days for this employee on this date
-      const override = shiftOverrides.find(
-        o => o.employeeId === emp.id && dateStr >= o.startDate && dateStr <= o.endDate
-      );
-      let empWorkingDays: string[];
-      if (override) {
-        const oShift = shifts.find(s => s.id === override.shiftId);
-        empWorkingDays = oShift ? normalizeWorkingDays(oShift.workingDays) : [];
-      } else if (emp.shiftId) {
-        const aShift = shifts.find(s => s.id === emp.shiftId);
-        empWorkingDays = aShift ? normalizeWorkingDays(aShift.workingDays) : [];
-      } else {
-        const defShift = shifts.find(s => s.isDefault);
-        empWorkingDays = defShift ? normalizeWorkingDays(defShift.workingDays) : normalizeWorkingDays(appConfig.workingDays || []);
-      }
+if (holidaySet.has(dateStr)) continue;
+if (emp.joiningDate && emp.joiningDate > dateStr) continue;
 
-      if (!empWorkingDays.includes(dayName)) continue;
+const override = shiftOverrides.find(
+  o =>
+    o.employeeId === emp.id &&
+    dateStr >= o.startDate &&
+    dateStr <= o.endDate
+);
 
-      // This is a working day for this employee
-      totalWorkingDays++;
+let effectiveShift: Shift | null = null;
 
-      // If no attendance record AND not on leave → gap absent
-      if (!empRecordedDates.has(dateStr) && !empLeaveDates.has(dateStr)) {
-        gapAbsentDays++;
-      }
+if (override) {
+  effectiveShift = shifts.find(s => s.id === override.shiftId) || null;
+} else if (emp.shiftId) {
+  effectiveShift = shifts.find(s => s.id === emp.shiftId) || null;
+} else {
+  effectiveShift = shifts.find(s => s.isDefault) || null;
+}
+
+let isWorkingDay = false;
+
+if (effectiveShift) {
+  isWorkingDay = isShiftWorkingDate(effectiveShift, dateStr);
+} else {
+  const dayName = dt.toLocaleDateString('en-US', { weekday: 'long' });
+  isWorkingDay = normalizeWorkingDays(appConfig.workingDays || []).includes(dayName);
+}
+
+if (!isWorkingDay) continue;
+
+     // This is a working day for this employee
+totalWorkingDays++;
+
+// Do not mark the current day absent until the assigned shift has ended
+if (dateStr === todayStr && effectiveShift) {
+  const [endHour, endMinute] = effectiveShift.endTime.split(':').map(Number);
+
+  const nowLocal = new Date();
+  const shiftEnd = new Date(
+    nowLocal.getFullYear(),
+    nowLocal.getMonth(),
+    nowLocal.getDate(),
+    endHour,
+    endMinute,
+    0,
+    0
+  );
+
+  // Overnight shift: e.g. 21:00 → 06:00
+  if (effectiveShift.endTime <= effectiveShift.startTime) {
+    shiftEnd.setDate(shiftEnd.getDate() + 1);
+  }
+
+  if (nowLocal < shiftEnd) {
+    continue;
+  }
+}
+
+// If no attendance record AND not on leave → gap absent
+if (!empRecordedDates.has(dateStr) && !empLeaveDates.has(dateStr)) {
+  gapAbsentDays++;
+}
     }
 
     const presentDays = presentMap.get(emp.id)?.size ?? 0;

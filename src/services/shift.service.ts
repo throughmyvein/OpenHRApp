@@ -17,6 +17,10 @@ const mapShift = (r: any): Shift => ({
   earliestCheckIn: r.earliest_check_in,
   autoSessionCloseTime: r.auto_session_close_time,
   workingDays: r.working_days,
+scheduleType: r.schedule_type ?? 'WEEKLY',
+cycleWorkDays: r.cycle_work_days ?? undefined,
+cycleOffDays: r.cycle_off_days ?? undefined,
+cycleStartDate: r.cycle_start_date ?? undefined,
   isDefault: r.is_default,
 });
 
@@ -61,17 +65,32 @@ export const shiftService = {
     if (shift.isDefault) await this.clearOtherDefaults();
 
     const payload = {
-      name: shift.name,
-      start_time: shift.startTime,
-      end_time: shift.endTime,
-      late_grace_period: shift.lateGracePeriod ?? 15,
-      early_out_grace_period: shift.earlyOutGracePeriod ?? 15,
-      earliest_check_in: shift.earliestCheckIn ?? '06:00',
-      auto_session_close_time: shift.autoSessionCloseTime ?? '23:59',
-      working_days: shift.workingDays ?? ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Sunday'],
-      is_default: shift.isDefault ?? false,
-      organization_id: orgId,
-    };
+  name: shift.name,
+  start_time: shift.startTime,
+  end_time: shift.endTime,
+  late_grace_period: shift.lateGracePeriod ?? 15,
+  early_out_grace_period: shift.earlyOutGracePeriod ?? 15,
+  earliest_check_in: shift.earliestCheckIn ?? '06:00',
+  auto_session_close_time: shift.autoSessionCloseTime ?? '23:59',
+  working_days: shift.workingDays ?? ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Sunday'],
+
+  schedule_type: shift.scheduleType ?? 'WEEKLY',
+  cycle_work_days:
+    shift.scheduleType === 'CYCLE'
+      ? (shift.cycleWorkDays ?? 2)
+      : null,
+  cycle_off_days:
+    shift.scheduleType === 'CYCLE'
+      ? (shift.cycleOffDays ?? 2)
+      : null,
+  cycle_start_date:
+    shift.scheduleType === 'CYCLE' && shift.cycleStartDate
+      ? shift.cycleStartDate
+      : null,
+
+  is_default: shift.isDefault ?? false,
+  organization_id: orgId,
+};
 
     const { data, error } = await supabase.from('shifts').insert(payload).select().single();
     if (error) throw error;
@@ -92,6 +111,10 @@ export const shiftService = {
     if (shift.earliestCheckIn !== undefined)     payload.earliest_check_in = shift.earliestCheckIn;
     if (shift.autoSessionCloseTime !== undefined) payload.auto_session_close_time = shift.autoSessionCloseTime;
     if (shift.workingDays !== undefined)         payload.working_days = shift.workingDays;
+if (shift.scheduleType !== undefined)        payload.schedule_type = shift.scheduleType;
+if (shift.cycleWorkDays !== undefined)       payload.cycle_work_days = shift.cycleWorkDays;
+if (shift.cycleOffDays !== undefined)        payload.cycle_off_days = shift.cycleOffDays;
+if (shift.cycleStartDate !== undefined)      payload.cycle_start_date = shift.cycleStartDate;
     if (shift.isDefault !== undefined)           payload.is_default = shift.isDefault;
 
     if (payload.is_default) await this.clearOtherDefaults(id);

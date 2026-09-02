@@ -267,6 +267,10 @@ export interface Shift {
   earliestCheckIn: string;
   autoSessionCloseTime: string;
   workingDays: string[];
+scheduleType: 'WEEKLY' | 'CYCLE';
+cycleWorkDays?: number;
+cycleOffDays?: number;
+cycleStartDate?: string;
   isDefault: boolean;
 }
 

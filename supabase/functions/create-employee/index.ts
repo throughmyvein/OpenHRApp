@@ -75,7 +75,7 @@ Deno.serve(async (req: Request) => {
     const { data: authData, error: createErr } = await adminClient.auth.admin.createUser({
       email,
       password,
-      email_confirm: false,
+      email_confirm: true,
       user_metadata: { name },
     });
 
@@ -113,6 +113,7 @@ Deno.serve(async (req: Request) => {
       email,
       role,
       employee_id:     employeeId || null,
+verified: true,
       department:      department || null,
       designation:     designation || null,
       line_manager_id: lineManagerId,
@@ -121,7 +122,6 @@ Deno.serve(async (req: Request) => {
       mobile:          mobile || null,
       joining_date:    joiningDate,
       avatar:          avatarPath,
-      verified:        false,
     }, { onConflict: 'id' });
 
     if (profileInsertErr) {

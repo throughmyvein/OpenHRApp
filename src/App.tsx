@@ -547,6 +547,32 @@ const AppContent: React.FC = () => {
 
   // Priority 3: Authenticated App
   const renderContent = () => {
+const role = user.role;
+
+const canAccess = (path: string): boolean => {
+  const accessMap: Record<string, string[]> = {
+    dashboard: ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD', 'EMPLOYEE'],
+    profile: ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD', 'EMPLOYEE'],
+    employees: ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD'],
+    attendance: ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD', 'EMPLOYEE'],
+    'attendance-logs': ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD', 'EMPLOYEE'],
+    'attendance-audit': ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER'],
+    leave: ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD', 'EMPLOYEE'],
+    announcements: ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD', 'EMPLOYEE'],
+    'admin-notifications': ['ADMIN', 'HR'],
+    'performance-review': ['ADMIN', 'MANAGEMENT', 'HR', 'MANAGER', 'TEAM_LEAD', 'EMPLOYEE'],
+    organization: ['ADMIN', 'HR'],
+    reports: ['ADMIN', 'MANAGEMENT', 'HR'],
+    settings: ['ADMIN', 'HR'],
+    upgrade: ['ADMIN', 'HR'],
+  };
+
+  return accessMap[path]?.includes(role) ?? false;
+};
+
+if (!isSuperAdmin && !canAccess(currentPath)) {
+  return <Dashboard user={user} onNavigate={handleNavigate} />;
+}
     // Super Admin has a dedicated dashboard
     if (isSuperAdmin && (currentPath === 'dashboard' || currentPath === 'super-admin')) {
       return <SuperAdmin user={user} onNavigate={handleNavigate} />;
