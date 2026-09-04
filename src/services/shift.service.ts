@@ -169,15 +169,93 @@ if (shift.cycleStartDate !== undefined)      payload.cycle_start_date = shift.cy
     }
   },
 
-  // In-memory only — no DB backing needed
   async getShiftOverrides(): Promise<ShiftOverride[]> {
-    if (cachedOverrides) return cachedOverrides;
-    return [];
-  },
+  if (!isSupabaseConfigured()) return [];
+  if (cachedOverrides) return cachedOverrides;
 
-  async setShiftOverrides(overrides: ShiftOverride[]) {
-    cachedOverrides = overrides;
-  },
+  const orgId = apiClient.getOrganizationId();
+  if (!orgId) return [];
+
+  const { data, error } = await supabase
+    .from('shift_overrides')
+    .select('*')
+    .eq('organization_id', orgId)
+    .order('start_date', { ascending: true });
+
+  if (error) {
+    console.error('[ShiftService] Failed to fetch shift overrides:', error.message);
+    return [];
+  }
+
+  cachedOverrides = (data || []).map((r: any) => ({
+    id: r.id,
+    employeeId: r.employee_id,
+    shiftId: r.shift_id,
+    startDate: r.start_date,
+    endDate: r.end_date,
+    reason: r.reason || '',
+  }));
+
+  return cachedOverrides;
+},
+
+async setShiftOverrides(overrides: ShiftOverride[]) {
+  if (!isSupabaseConfigured()) return;
+
+  const orgId = apiClient.getOrganizationId();
+  if (!orgId) throw new Error('No organization ID available');
+
+  const existing = await this.getShiftOverrides();
+
+  const incomingIds = new Set(
+    overrides
+      .map(o => o.id)
+      .filter(id => id && !id.startsWith('so_'))
+  );
+
+  const idsToDelete = existing
+    .filter(o => !incomingIds.has(o.id))
+    .map(o => o.id);
+
+  if (idsToDelete.length > 0) {
+    const { error: deleteError } = await supabase
+      .from('shift_overrides')
+      .delete()
+      .in('id', idsToDelete);
+
+    if (deleteError) throw deleteError;
+  }
+
+  for (const override of overrides) {
+    const payload = {
+      organization_id: orgId,
+      employee_id: override.employeeId,
+      shift_id: override.shiftId,
+      start_date: override.startDate,
+      end_date: override.endDate,
+      reason: override.reason || '',
+    };
+
+    if (override.id && !override.id.startsWith('so_')) {
+      const { error } = await supabase
+        .from('shift_overrides')
+        .update(payload)
+        .eq('id', override.id);
+
+      if (error) throw error;
+    } else {
+      const { error } = await supabase
+        .from('shift_overrides')
+        .insert(payload);
+
+      if (error) throw error;
+    }
+  }
+
+  cachedOverrides = null;
+  await this.getShiftOverrides();
+  apiClient.notify();
+},
 
   async resolveShiftForEmployee(
     employeeId: string,

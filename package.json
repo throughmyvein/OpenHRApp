@@ -30,7 +30,8 @@
     "lucide-react": "^0.460.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "recharts": "2.13.3"
+    "recharts": "2.13.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",

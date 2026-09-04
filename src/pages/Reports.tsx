@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import {
   FileText, Calendar, Clock, RefreshCw, User as UserIcon, Search, FileSpreadsheet, FileDown, MapPin,
   Activity, AlertCircle, HelpCircle, CheckCircle2, CheckCircle, Settings2, Mail, CheckSquare, Square, Layout,
@@ -410,7 +411,624 @@ if (dateStr === todayStr && effectiveShift) {
       employeeFilter,
     });
   }, [attendance, leaves, employees, shifts, shiftOverrides, appConfig, holidays, startDate, endDate, selectedDepts, employeeFilter]);
+type TimesheetCode =
+  | 'P'
+  | 'L'
+  | 'HD'
+  | 'A'
+  | 'W'
+  | 'OFF'
+  | 'HOL'
+  | 'AL'
+  | 'CL'
+  | 'SL'
+  | 'DO'
+  | 'BT'
+  | 'ML'
+  | 'PL'
+  | 'EL'
+  | 'UL'
+  | 'LV'
+  | 'NA';
 
+interface TimesheetDay {
+  date: string;
+  code: TimesheetCode;
+  attendanceStatus?: string;
+  leaveType?: string;
+  shiftName?: string;
+}
+
+interface TimesheetRow {
+  employee: Employee;
+  days: TimesheetDay[];
+  plannedDays: number;
+  completedDays: number;
+  remainingDays: number;
+  presentDays: number;
+  absentDays: number;
+  lateDays: number;
+  leaveDays: number;
+  workedHours: number;
+}
+
+const monthlyTimesheet = useMemo<TimesheetRow[]>(() => {
+  const DAY_MAP: Record<string, string> = {
+    MON: 'Monday',
+    TUE: 'Tuesday',
+    WED: 'Wednesday',
+    THU: 'Thursday',
+    FRI: 'Friday',
+    SAT: 'Saturday',
+    SUN: 'Sunday',
+  };
+
+  const normalizeDays = (days: string[] = []) =>
+    days.map(d => DAY_MAP[d.toUpperCase()] || d);
+
+  const getEffectiveShift = (
+    emp: Employee,
+    dateStr: string
+  ): Shift | null => {
+    const override = shiftOverrides.find(
+      (o: any) =>
+        o.employeeId === emp.id &&
+        dateStr >= o.startDate &&
+        dateStr <= o.endDate
+    );
+
+    if (override) {
+      const shift = shifts.find(s => s.id === override.shiftId);
+      if (shift) return shift;
+    }
+
+    if (emp.shiftId) {
+      const shift = shifts.find(s => s.id === emp.shiftId);
+      if (shift) return shift;
+    }
+
+    return shifts.find(s => s.isDefault) || null;
+  };
+
+  const isShiftWorkingDate = (
+    shift: Shift,
+    dateStr: string
+  ): boolean => {
+    if ((shift.scheduleType || 'WEEKLY') === 'CYCLE') {
+      if (
+        !shift.cycleStartDate ||
+        !shift.cycleWorkDays ||
+        !shift.cycleOffDays
+      ) {
+        return false;
+      }
+
+      const current = new Date(`${dateStr}T00:00:00Z`);
+      const cycleStart = new Date(
+        `${shift.cycleStartDate}T00:00:00Z`
+      );
+
+      // Shift cycle has not started yet.
+      if (current < cycleStart) return false;
+
+      const diffDays = Math.floor(
+        (current.getTime() - cycleStart.getTime()) / 86400000
+      );
+
+      const cycleLength =
+        shift.cycleWorkDays + shift.cycleOffDays;
+
+      const position =
+        ((diffDays % cycleLength) + cycleLength) % cycleLength;
+
+      return position < shift.cycleWorkDays;
+    }
+
+    const dayName = new Date(
+      `${dateStr}T00:00:00Z`
+    ).toLocaleDateString('en-US', {
+      weekday: 'long',
+      timeZone: 'UTC',
+    });
+
+    return normalizeDays(shift.workingDays || []).includes(dayName);
+  };
+
+  const leaveCode = (type: string): TimesheetCode => {
+    switch (type) {
+      case 'ANNUAL':
+        return 'AL';
+      case 'CASUAL':
+        return 'CL';
+      case 'SICK':
+        return 'SL';
+      case 'DAY_OFF':
+        return 'DO';
+      case 'BUSINESS_TRIP':
+        return 'BT';
+      case 'MATERNITY':
+        return 'ML';
+      case 'PATERNITY':
+        return 'PL';
+      case 'EARNED':
+        return 'EL';
+      case 'UNPAID':
+        return 'UL';
+      default:
+        return 'LV';
+    }
+  };
+
+  const targetEmployees = employees.filter(emp => {
+    if (emp.status !== 'ACTIVE') return false;
+
+    if (
+      selectedDepts.length > 0 &&
+      !selectedDepts.includes(emp.department || '')
+    ) {
+      return false;
+    }
+
+    if (
+      employeeFilter !== 'All Employees' &&
+      emp.id !== employeeFilter
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+
+  const consolidated = consolidateAttendance(
+    attendance.filter(a =>
+      a.date >= startDate &&
+      a.date <= endDate
+    )
+  );
+
+  const attendanceMap = new Map<string, Attendance>();
+
+  consolidated.forEach(a => {
+    attendanceMap.set(`${a.employeeId}_${a.date}`, a);
+  });
+
+  const holidaySet = new Set(
+    holidays.map(h => h.date)
+  );
+
+  const now = new Date();
+
+  const todayStr =
+    now.getFullYear() +
+    '-' +
+    String(now.getMonth() + 1).padStart(2, '0') +
+    '-' +
+    String(now.getDate()).padStart(2, '0');
+
+  const rows: TimesheetRow[] = [];
+
+  for (const emp of targetEmployees) {
+    const days: TimesheetDay[] = [];
+
+    const start = new Date(`${startDate}T00:00:00Z`);
+    const end = new Date(`${endDate}T00:00:00Z`);
+
+    for (
+      let dt = new Date(start);
+      dt <= end;
+      dt.setUTCDate(dt.getUTCDate() + 1)
+    ) {
+      const dateStr = dt.toISOString().split('T')[0];
+
+      // Before employee joined the company.
+      if (emp.joiningDate && dateStr < emp.joiningDate) {
+        days.push({
+          date: dateStr,
+          code: 'NA',
+        });
+        continue;
+      }
+
+      const shift = getEffectiveShift(emp, dateStr);
+
+      if (!shift) {
+        days.push({
+          date: dateStr,
+          code: 'OFF',
+        });
+        continue;
+      }
+
+      // Public holiday has priority over ordinary schedule.
+      if (holidaySet.has(dateStr)) {
+        days.push({
+          date: dateStr,
+          code: 'HOL',
+          shiftName: shift.name,
+        });
+        continue;
+      }
+
+      const isWorkingDay = isShiftWorkingDate(
+        shift,
+        dateStr
+      );
+
+      // Scheduled day off.
+      if (!isWorkingDay) {
+        days.push({
+          date: dateStr,
+          code: 'OFF',
+          shiftName: shift.name,
+        });
+        continue;
+      }
+
+      // Approved leave only replaces a scheduled working day.
+      const approvedLeave = leaves.find(l => {
+        if (l.employeeId !== emp.id) return false;
+        if (l.status !== 'APPROVED') return false;
+
+        const leaveStart = l.startDate.split(' ')[0];
+        const leaveEnd = l.endDate.split(' ')[0];
+
+        return (
+          dateStr >= leaveStart &&
+          dateStr <= leaveEnd
+        );
+      });
+
+      if (approvedLeave) {
+        days.push({
+          date: dateStr,
+          code: leaveCode(approvedLeave.type),
+          leaveType: approvedLeave.type,
+          shiftName: shift.name,
+        });
+        continue;
+      }
+
+      const attendanceRecord = attendanceMap.get(
+        `${emp.id}_${dateStr}`
+      );
+
+      // Real attendance always wins once it exists.
+      if (attendanceRecord) {
+        let code: TimesheetCode = 'P';
+
+        if (attendanceRecord.status === 'LATE') {
+          code = 'L';
+        } else if (
+          attendanceRecord.status === 'HALF_DAY'
+        ) {
+          code = 'HD';
+        } else if (
+          attendanceRecord.status === 'ABSENT'
+        ) {
+          code = 'A';
+        } else {
+          code = 'P';
+        }
+
+        days.push({
+          date: dateStr,
+          code,
+          attendanceStatus: attendanceRecord.status,
+          shiftName: shift.name,
+        });
+
+        continue;
+      }
+
+      // Future scheduled work.
+      if (dateStr > todayStr) {
+        days.push({
+          date: dateStr,
+          code: 'W',
+          shiftName: shift.name,
+        });
+        continue;
+      }
+
+      // Today: keep as WORK until the employee's shift has ended.
+      if (dateStr === todayStr) {
+        const [endHour, endMinute] = shift.endTime
+          .split(':')
+          .map(Number);
+
+        const shiftEnd = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          endHour,
+          endMinute,
+          0,
+          0
+        );
+
+        // Overnight shift, for example 21:00 -> 06:00.
+        if (shift.endTime <= shift.startTime) {
+          shiftEnd.setDate(shiftEnd.getDate() + 1);
+        }
+
+        if (now < shiftEnd) {
+          days.push({
+            date: dateStr,
+            code: 'W',
+            shiftName: shift.name,
+          });
+          continue;
+        }
+      }
+
+      // Past scheduled working day with no attendance or leave.
+      days.push({
+        date: dateStr,
+        code: 'A',
+        shiftName: shift.name,
+      });
+    }
+
+    const leaveCodes: TimesheetCode[] = [
+  'AL',
+  'CL',
+  'SL',
+  'DO',
+  'BT',
+  'ML',
+  'PL',
+  'EL',
+  'UL',
+  'LV',
+];
+
+const plannedDays = days.filter(day =>
+  !['OFF', 'HOL', 'NA'].includes(day.code)
+).length;
+const completedDays = days.filter(day =>
+  !['W', 'OFF', 'HOL', 'NA'].includes(day.code)
+).length;
+
+const remainingDays = days.filter(day =>
+  day.code === 'W'
+).length;
+
+const presentDays = days.filter(day =>
+  ['P', 'L', 'HD'].includes(day.code)
+).length;
+
+const absentDays = days.filter(day =>
+  day.code === 'A'
+).length;
+
+const lateDays = days.filter(day =>
+  day.code === 'L'
+).length;
+
+const leaveDays = days.filter(day =>
+  leaveCodes.includes(day.code)
+).length;
+
+// Total actual worked hours from attendance check-in/check-out.
+const workedMinutes = days.reduce((total, day) => {
+  const record = attendanceMap.get(
+    `${emp.id}_${day.date}`
+  );
+
+  if (
+    !record?.checkIn ||
+    !record?.checkOut ||
+    record.checkIn === '-' ||
+    record.checkOut === '-'
+  ) {
+    return total;
+  }
+
+  const [inHour, inMinute] = record.checkIn
+    .split(':')
+    .map(Number);
+
+  const [outHour, outMinute] = record.checkOut
+    .split(':')
+    .map(Number);
+
+  if (
+    Number.isNaN(inHour) ||
+    Number.isNaN(inMinute) ||
+    Number.isNaN(outHour) ||
+    Number.isNaN(outMinute)
+  ) {
+    return total;
+  }
+
+  const checkInMinutes = inHour * 60 + inMinute;
+  let checkOutMinutes = outHour * 60 + outMinute;
+
+  // Overnight shift, e.g. 21:00 -> 06:00.
+  if (checkOutMinutes < checkInMinutes) {
+    checkOutMinutes += 24 * 60;
+  }
+
+  return total + (checkOutMinutes - checkInMinutes);
+}, 0);
+
+const workedHours = Math.round((workedMinutes / 60) * 100) / 100;
+
+rows.push({
+  employee: emp,
+  days,
+  plannedDays,
+  completedDays,
+  remainingDays,
+  presentDays,
+  absentDays,
+  lateDays,
+  leaveDays,
+  workedHours,
+});
+  }
+
+  return rows;
+}, [
+  employees,
+  attendance,
+  leaves,
+  shifts,
+  shiftOverrides,
+  holidays,
+  startDate,
+  endDate,
+  selectedDepts,
+  employeeFilter,
+]);
+
+  const downloadTimesheetExcel = () => {
+  if (monthlyTimesheet.length === 0) {
+    showToast("No timesheet data to export.", "warning");
+    return;
+  }
+
+  setIsGenerating(true);
+
+  try {
+    const dayHeaders =
+      monthlyTimesheet[0]?.days.map(day => day.date) || [];
+
+    const dayLabels =
+  monthlyTimesheet[0]?.days.map(day => {
+    const date = new Date(`${day.date}T00:00:00Z`);
+
+    const dayNumber = String(date.getUTCDate()).padStart(2, '0');
+
+    const weekday = date
+      .toLocaleDateString('en-US', {
+        weekday: 'short',
+        timeZone: 'UTC',
+      })
+      .toUpperCase();
+
+    return `${dayNumber} ${weekday}`;
+  }) || [];
+
+const headers = [
+  'Employee ID',
+  'Employee Name',
+  'Department',
+  ...dayLabels,
+  'Plan',
+  'Elapsed',
+  'Remaining',
+  'Present',
+  'Absent',
+  'Late',
+  'Leave',
+  'Hours',
+];
+
+const rows = monthlyTimesheet.map(row => [
+  row.employee.employeeId || '',
+  row.employee.name || '',
+  row.employee.department || '',
+  ...row.days.map(day => day.code),
+  row.plannedDays,
+  row.completedDays,
+  row.remainingDays,
+  row.presentDays,
+  row.absentDays,
+  row.lateDays,
+  row.leaveDays,
+  row.workedHours,
+]);
+
+    const worksheet = XLSX.utils.aoa_to_sheet([
+  ['Monthly Timesheet'],
+  [`Period: ${startDate} to ${endDate}`],
+  [],
+  headers,
+  ...rows,
+]);
+
+worksheet['!merges'] = [
+  {
+    s: { r: 0, c: 0 },
+    e: { r: 0, c: headers.length - 1 },
+  },
+  {
+    s: { r: 1, c: 0 },
+    e: { r: 1, c: headers.length - 1 },
+  },
+];
+    worksheet['!cols'] = [
+      { wch: 18 },
+      { wch: 32 },
+      { wch: 20 },
+      ...dayHeaders.map(() => ({ wch: 12 })),
+      { wch: 10 },
+      { wch: 10 },
+      { wch: 11 },
+      { wch: 10 },
+      { wch: 10 },
+      { wch: 10 },
+      { wch: 10 },
+      { wch: 10 },
+    ];
+
+const legendWorksheet = XLSX.utils.aoa_to_sheet([
+  ['Code', 'Meaning'],
+  ['P', 'Present'],
+  ['L', 'Late'],
+  ['HD', 'Half Day'],
+  ['A', 'Absent'],
+  ['W', 'Scheduled'],
+  ['OFF', 'Off'],
+  ['HOL', 'Holiday'],
+  ['AL', 'Annual Leave'],
+  ['CL', 'Casual Leave'],
+  ['SL', 'Sick Leave'],
+  ['DO', 'Day Off'],
+  ['BT', 'Business Trip'],
+  ['ML', 'Maternity Leave'],
+  ['PL', 'Paternity Leave'],
+  ['EL', 'Earned Leave'],
+  ['UL', 'Unpaid Leave'],
+  ['LV', 'Leave'],
+  ['NA', 'Not Applicable'],
+]);
+
+legendWorksheet['!cols'] = [
+  { wch: 12 },
+  { wch: 28 },
+];
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      'Monthly Timesheet'
+    );
+XLSX.utils.book_append_sheet(
+  workbook,
+  legendWorksheet,
+  'Legend'
+);
+    XLSX.writeFile(
+      workbook,
+      `OpenHRApp_Timesheet_${startDate}_${endDate}.xlsx`
+    );
+
+    showToast("Excel timesheet exported successfully.", "success");
+  } catch (error: any) {
+    console.error("Timesheet Excel export failed:", error);
+
+    showToast(
+      "Failed to export Excel timesheet: " +
+        (error?.message || error),
+      "error"
+    );
+  } finally {
+    setIsGenerating(false);
+  }
+};
   const getCleanReportData = () => {
     return reportData.map((row: any) => {
       const emp = employees.find(e => e.id === row.employeeId);
@@ -900,6 +1518,260 @@ if (dateStr === todayStr && effectiveShift) {
             </div>
           </div>
 
+{/* ===== MONTHLY TIMESHEET ===== */}
+<div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 md:p-12 space-y-6">
+  <div className="flex items-center justify-between gap-4 flex-wrap">
+    <div className="flex items-center gap-3">
+      <div className="p-2.5 bg-emerald-100 rounded-xl">
+        <CalendarDays size={20} className="text-emerald-600" />
+      </div>
+
+      <div>
+        <h2 className="text-lg font-bold text-slate-900">
+          Monthly Timesheet
+        </h2>
+
+        <p className="text-[10px] text-slate-400 uppercase tracking-wider">
+          Planned schedule + leave + actual attendance
+        </p>
+      </div>
+    </div>
+<button
+  onClick={downloadTimesheetExcel}
+  disabled={isGenerating || monthlyTimesheet.length === 0}
+  className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-semibold text-[9px] uppercase tracking-wider shadow-sm hover:bg-emerald-700 transition-all disabled:opacity-50"
+>
+  {isGenerating ? (
+    <RefreshCw className="animate-spin" size={14} />
+  ) : (
+    <FileSpreadsheet size={14} />
+  )}
+  Excel Timesheet
+</button>
+    <div className="flex flex-wrap gap-2 text-[9px] font-semibold uppercase">
+      {[
+        ['P', 'Present', 'bg-emerald-100 text-emerald-700'],
+        ['L', 'Late', 'bg-amber-100 text-amber-700'],
+        ['A', 'Absent', 'bg-rose-100 text-rose-700'],
+        ['W', 'Scheduled', 'bg-indigo-100 text-indigo-700'],
+        ['OFF', 'Off', 'bg-slate-100 text-slate-500'],
+        ['SL', 'Sick', 'bg-rose-50 text-rose-600'],
+        ['AL', 'Annual', 'bg-blue-50 text-blue-600'],
+        ['DO', 'Day Off', 'bg-sky-50 text-sky-600'],
+        ['BT', 'Business Trip', 'bg-violet-50 text-violet-600'],
+        ['HOL', 'Holiday', 'bg-fuchsia-50 text-fuchsia-600'],
+      ].map(([code, label, cls]) => (
+        <div
+          key={code}
+          className={`px-2.5 py-1.5 rounded-lg ${cls}`}
+        >
+          {code} — {label}
+        </div>
+      ))}
+    </div>
+  </div>
+
+  {monthlyTimesheet.length === 0 ? (
+    <div className="text-center py-12 bg-slate-50 rounded-2xl border border-slate-100">
+      <CalendarDays
+        size={40}
+        className="mx-auto text-slate-300 mb-3"
+      />
+
+      <p className="text-sm font-semibold text-slate-400">
+        No timesheet data for this period
+      </p>
+    </div>
+  ) : (
+    <div className="overflow-x-auto border border-slate-100 rounded-2xl">
+      <table className="min-w-max w-full border-collapse text-[10px]">
+        <thead>
+          <tr className="bg-slate-50">
+            <th className="sticky left-0 z-20 bg-slate-50 px-4 py-3 text-left border-b border-r border-slate-100 min-w-[220px]">
+              Employee
+            </th>
+
+            {monthlyTimesheet[0]?.days.map(day => {
+              const d = new Date(`${day.date}T00:00:00Z`);
+
+              const dayNumber = String(
+                d.getUTCDate()
+              ).padStart(2, '0');
+
+              const weekday = d.toLocaleDateString(
+                'en-US',
+                {
+                  weekday: 'short',
+                  timeZone: 'UTC',
+                }
+              );
+
+              return (
+                <th
+                  key={day.date}
+                  className="px-2 py-2 border-b border-r border-slate-100 text-center min-w-[46px]"
+                  title={day.date}
+                >
+                  <div className="font-bold text-slate-700">
+                    {dayNumber}
+                  </div>
+
+                  <div className="text-[8px] text-slate-400 uppercase">
+                    {weekday}
+                  </div>
+                </th>
+              );
+            })}
+<th
+  className="px-3 py-2 border-b border-r border-l-2 border-slate-200 text-center min-w-[64px] bg-indigo-50 text-indigo-700"
+  title="Total scheduled working days for the selected period"
+>
+  Plan
+</th>
+
+<th
+  className="px-3 py-2 border-b border-r border-slate-100 text-center min-w-[70px] bg-slate-50 text-slate-700"
+  title="Scheduled working days that have already occurred"
+>
+  Elapsed
+</th>
+
+<th className="px-3 py-2 border-b border-r border-slate-100 text-center min-w-[70px] bg-indigo-50 text-indigo-600">
+  Remaining
+</th>
+
+<th className="px-3 py-2 border-b border-r border-slate-100 text-center min-w-[60px] bg-emerald-50 text-emerald-700">
+  Present
+</th>
+
+<th className="px-3 py-2 border-b border-r border-slate-100 text-center min-w-[60px] bg-rose-50 text-rose-700">
+  Absent
+</th>
+
+<th className="px-3 py-2 border-b border-r border-slate-100 text-center min-w-[55px] bg-amber-50 text-amber-700">
+  Late
+</th>
+
+<th className="px-3 py-2 border-b border-r border-slate-100 text-center min-w-[60px] bg-blue-50 text-blue-700">
+  Leave
+</th>
+
+<th
+  className="px-3 py-2 border-b border-slate-100 text-center min-w-[70px] bg-cyan-50 text-cyan-700"
+  title="Actual worked hours calculated from check-in and check-out"
+>
+  Hours
+</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {monthlyTimesheet.map(row => (
+            <tr
+              key={row.employee.id}
+              className="hover:bg-slate-50/70"
+            >
+              <td className="sticky left-0 z-10 bg-white px-4 py-3 border-b border-r border-slate-100">
+                <div className="font-semibold text-slate-800">
+                  {row.employee.name}
+                </div>
+
+                <div className="text-[8px] text-slate-400 mt-0.5">
+                  {row.employee.employeeId || '—'}
+                  {row.employee.department
+                    ? ` • ${row.employee.department}`
+                    : ''}
+                </div>
+              </td>
+
+              {row.days.map(day => {
+                const codeClasses: Record<string, string> = {
+                  P: 'bg-emerald-100 text-emerald-700',
+                  L: 'bg-amber-100 text-amber-700',
+                  HD: 'bg-orange-100 text-orange-700',
+                  A: 'bg-rose-100 text-rose-700',
+                  W: 'bg-indigo-100 text-indigo-700',
+                  OFF: 'bg-slate-100 text-slate-400',
+                  HOL: 'bg-fuchsia-100 text-fuchsia-700',
+                  AL: 'bg-blue-100 text-blue-700',
+                  CL: 'bg-emerald-50 text-emerald-600',
+                  SL: 'bg-rose-50 text-rose-600',
+                  DO: 'bg-sky-100 text-sky-700',
+                  BT: 'bg-violet-100 text-violet-700',
+                  ML: 'bg-pink-100 text-pink-700',
+                  PL: 'bg-indigo-50 text-indigo-600',
+                  EL: 'bg-amber-50 text-amber-600',
+                  UL: 'bg-slate-200 text-slate-600',
+                  LV: 'bg-blue-50 text-blue-600',
+                  NA: 'bg-white text-slate-200',
+                };
+
+                return (
+                  <td
+                    key={day.date}
+                    className="border-b border-r border-slate-100 p-1 text-center"
+                    title={[
+                      day.date,
+                      `Status: ${day.code}`,
+                      day.shiftName
+                        ? `Shift: ${day.shiftName}`
+                        : '',
+                      day.leaveType
+                        ? `Leave: ${day.leaveType}`
+                        : '',
+                    ]
+                      .filter(Boolean)
+                      .join('\n')}
+                  >
+                    <div
+                      className={`w-9 h-8 mx-auto rounded-lg flex items-center justify-center font-bold ${codeClasses[day.code] || 'bg-slate-100 text-slate-500'}`}
+                    >
+                      {day.code}
+                    </div>
+                  </td>
+                );
+              })}
+<td className="px-3 py-3 border-b border-r border-l-2 border-slate-200 text-center font-bold text-indigo-700 bg-indigo-50/40">
+  {row.plannedDays}
+</td>
+
+<td className="px-3 py-3 border-b border-r border-slate-100 text-center font-bold text-slate-700 bg-slate-50/40">
+  {row.completedDays}
+</td>
+
+<td className="px-3 py-3 border-b border-r border-slate-100 text-center font-bold text-indigo-600 bg-indigo-50/30">
+  {row.remainingDays}
+</td>
+
+<td className="px-3 py-3 border-b border-r border-slate-100 text-center font-bold text-emerald-700 bg-emerald-50/40">
+  {row.presentDays}
+</td>
+
+<td className="px-3 py-3 border-b border-r border-slate-100 text-center font-bold text-rose-700 bg-rose-50/40">
+  {row.absentDays}
+</td>
+
+<td className="px-3 py-3 border-b border-r border-slate-100 text-center font-bold text-amber-700 bg-amber-50/40">
+  {row.lateDays}
+</td>
+
+<td className="px-3 py-3 border-b border-r border-slate-100 text-center font-bold text-blue-700 bg-blue-50/40">
+  {row.leaveDays}
+</td>
+
+<td
+  className="px-3 py-3 border-b border-slate-100 text-center font-bold text-cyan-700 bg-cyan-50/40"
+  title="Actual worked hours"
+>
+  {row.workedHours.toFixed(2)}
+</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</div>
           {/* ===== SECTION 2: DETAIL RECORDS ===== */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 md:p-12 space-y-8">
             <div className="flex items-center gap-3">

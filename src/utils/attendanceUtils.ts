@@ -89,7 +89,12 @@ export const getDateRangeFromPreset = (
   preset: string,
   today: Date = new Date()
 ): { startDate: string; endDate: string } => {
-  const toISO = (d: Date) => d.toISOString().split('T')[0];
+  const toISO = (d: Date) =>
+  d.getFullYear() +
+  '-' +
+  String(d.getMonth() + 1).padStart(2, '0') +
+  '-' +
+  String(d.getDate()).padStart(2, '0');
   const y = today.getFullYear();
   const m = today.getMonth(); // 0-indexed
   const d = today.getDate();
