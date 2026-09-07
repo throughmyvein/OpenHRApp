@@ -618,29 +618,18 @@ export const organizationService = {
       throw error;
     }
 
-    const status = (data?.subscription_status as SubscriptionStatus) || 'TRIAL';
-    const trialEndDate = data?.trial_end_date as string | undefined;
+    const status: SubscriptionStatus = 'ACTIVE';
 
-    let daysRemaining: number | undefined;
-    if (status === 'TRIAL' && trialEndDate) {
-      const endDate = new Date(trialEndDate);
-      const now = new Date();
-      // Calendar-date math (ignore wall-clock time) to match the legacy PB endpoint.
-      const endDay = Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate());
-      const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-      daysRemaining = Math.max(0, Math.round((endDay - today) / (1000 * 60 * 60 * 24)));
-    }
-
-    return {
-      status,
-      trialEndDate,
-      daysRemaining,
-      isSuperAdmin: false,
-      isReadOnly: status === 'EXPIRED',
-      isBlocked: status === 'SUSPENDED',
-      showAds: status === 'AD_SUPPORTED',
-      isDemo: data?.is_demo || false,
-    };
+return {
+  status,
+  trialEndDate: undefined,
+  daysRemaining: undefined,
+  isSuperAdmin: false,
+  isReadOnly: false,
+  isBlocked: false,
+  showAds: false,
+  isDemo: data?.is_demo || false,
+};
   },
 
   async getOrgBranding(): Promise<{ name: string; address: string; logoDataUrl: string | null }> {

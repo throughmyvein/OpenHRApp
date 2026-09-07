@@ -90,7 +90,6 @@ const ROUTE_TABLE: RouteEntry[] = [
   { regex: /^#\/organization\/?$/,            path: 'organization',    paramNames: [] },
   { regex: /^#\/settings\/?$/,                path: 'settings',        paramNames: [] },
   { regex: /^#\/profile\/?$/,                 path: 'profile',         paramNames: [] },
-  { regex: /^#\/upgrade\/?$/,                 path: 'upgrade',         paramNames: [] },
 ];
 
 // ---------------------------------------------------------------------------
@@ -125,7 +124,6 @@ const REVERSE_MAP: Record<string, HashBuilder> = {
   'organization':         () => '#/organization',
   'settings':             () => '#/settings',
   'profile':              () => '#/profile',
-  'upgrade':              () => '#/upgrade',
 };
 
 // ---------------------------------------------------------------------------

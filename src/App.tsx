@@ -50,7 +50,6 @@ const Settings = lazyWithReload(() => import('./pages/Settings'));
 const Reports = lazyWithReload(() => import('./pages/Reports'));
 const Organization = lazyWithReload(() => import('./pages/Organization'));
 const SuperAdmin = lazyWithReload(() => import('./pages/SuperAdmin'));
-const Upgrade = lazyWithReload(() => import('./pages/Upgrade'));
 const PerformanceReview = lazyWithReload(() => import('./pages/PerformanceReview'));
 const Announcements = lazyWithReload(() => import('./pages/Announcements'));
 const AdminNotifications = lazyWithReload(() => import('./pages/AdminNotifications'));
@@ -581,11 +580,6 @@ if (!isSuperAdmin && !canAccess(currentPath)) {
     switch (currentPath) {
       case 'dashboard': return <Dashboard user={user} onNavigate={handleNavigate} />;
       case 'super-admin': return <SuperAdmin user={user} onNavigate={handleNavigate} />;
-      case 'upgrade':
-        if (user.role === 'ADMIN' || user.role === 'HR') {
-          return <Upgrade onBack={() => handleNavigate('dashboard')} />;
-        }
-        return <Dashboard user={user} onNavigate={handleNavigate} />;
       case 'profile': return <Settings user={user} onBack={() => handleNavigate('dashboard')} />;
       case 'employees': return <EmployeeDirectory user={user} selectedEmployeeId={navParams?.selectedEmployeeId} />;
       case 'attendance':
