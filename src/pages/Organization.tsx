@@ -77,6 +77,7 @@ const Organization: React.FC<OrganizationProps> = ({ initialTab }) => {
   name: '',
   startTime: '09:00',
   endTime: '18:00',
+breakDurationMinutes: 90,
   lateGracePeriod: 5,
   earlyOutGracePeriod: 5,
   earliestCheckIn: '08:00',
@@ -121,6 +122,7 @@ const Organization: React.FC<OrganizationProps> = ({ initialTab }) => {
   name: '',
   startTime: '09:00',
   endTime: '18:00',
+breakDurationMinutes: 90,
   lateGracePeriod: 5,
   earlyOutGracePeriod: 5,
   earliestCheckIn: '08:00',
@@ -499,6 +501,28 @@ const Organization: React.FC<OrganizationProps> = ({ initialTab }) => {
                       <label className="text-[10px] font-semibold text-slate-400 uppercase px-1">End Time</label>
                       <input type="time" required className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={shiftForm.endTime} onChange={e => setShiftForm({...shiftForm, endTime: e.target.value})} />
                     </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold text-slate-400 uppercase px-1">
+                      Break Duration (min)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="1439"
+                      required
+                      className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold"
+                      value={shiftForm.breakDurationMinutes}
+                      onChange={e =>
+                        setShiftForm({
+                          ...shiftForm,
+                          breakDurationMinutes: parseInt(e.target.value) || 0
+                        })
+                      }
+                    />
+                    <p className="text-[10px] text-slate-400 px-1">
+                      Unpaid breaks excluded from planned working hours. 90 min = 1.5 hours.
+                    </p>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">

@@ -12,6 +12,7 @@ const mapShift = (r: any): Shift => ({
   name: r.name,
   startTime: r.start_time,
   endTime: r.end_time,
+breakDurationMinutes: r.break_duration_minutes ?? 0,
   lateGracePeriod: r.late_grace_period,
   earlyOutGracePeriod: r.early_out_grace_period,
   earliestCheckIn: r.earliest_check_in,
@@ -68,6 +69,7 @@ export const shiftService = {
   name: shift.name,
   start_time: shift.startTime,
   end_time: shift.endTime,
+break_duration_minutes: shift.breakDurationMinutes ?? 0,
   late_grace_period: shift.lateGracePeriod ?? 15,
   early_out_grace_period: shift.earlyOutGracePeriod ?? 15,
   earliest_check_in: shift.earliestCheckIn ?? '06:00',
@@ -106,6 +108,7 @@ export const shiftService = {
     if (shift.name !== undefined)                payload.name = shift.name;
     if (shift.startTime !== undefined)           payload.start_time = shift.startTime;
     if (shift.endTime !== undefined)             payload.end_time = shift.endTime;
+if (shift.breakDurationMinutes !== undefined) payload.break_duration_minutes = shift.breakDurationMinutes;
     if (shift.lateGracePeriod !== undefined)     payload.late_grace_period = shift.lateGracePeriod;
     if (shift.earlyOutGracePeriod !== undefined) payload.early_out_grace_period = shift.earlyOutGracePeriod;
     if (shift.earliestCheckIn !== undefined)     payload.earliest_check_in = shift.earliestCheckIn;

@@ -262,6 +262,7 @@ export interface Shift {
   name: string;
   startTime: string;
   endTime: string;
+  breakDurationMinutes: number;
   lateGracePeriod: number;
   earlyOutGracePeriod: number;
   earliestCheckIn: string;

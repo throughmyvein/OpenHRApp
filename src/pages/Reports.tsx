@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import {
   FileText, Calendar, Clock, RefreshCw, User as UserIcon, Search, FileSpreadsheet, FileDown, MapPin,
   Activity, AlertCircle, HelpCircle, CheckCircle2, CheckCircle, Settings2, Mail, CheckSquare, Square, Layout,
@@ -443,6 +443,7 @@ interface TimesheetRow {
   employee: Employee;
   days: TimesheetDay[];
   plannedDays: number;
+  plannedHours: number;
   completedDays: number;
   remainingDays: number;
   presentDays: number;
@@ -785,6 +786,44 @@ const monthlyTimesheet = useMemo<TimesheetRow[]>(() => {
 const plannedDays = days.filter(day =>
   !['OFF', 'HOL', 'NA'].includes(day.code)
 ).length;
+const plannedHours = days.reduce((total, day) => {
+  // No planned working hours for days off, holidays,
+  // or dates before employment / not applicable.
+  if (['OFF', 'HOL', 'NA'].includes(day.code)) {
+    return total;
+  }
+
+  const shift = getEffectiveShift(emp, day.date);
+
+  if (!shift) {
+    return total;
+  }
+
+  const [startHour, startMinute] = shift.startTime
+    .split(':')
+    .map(Number);
+
+  const [endHour, endMinute] = shift.endTime
+    .split(':')
+    .map(Number);
+
+  let startMinutes = startHour * 60 + startMinute;
+  let endMinutes = endHour * 60 + endMinute;
+
+  // Overnight shift, for example 21:00 -> 06:00.
+  if (endMinutes <= startMinutes) {
+    endMinutes += 24 * 60;
+  }
+
+  const grossMinutes = endMinutes - startMinutes;
+
+  const netMinutes = Math.max(
+    0,
+    grossMinutes - (shift.breakDurationMinutes ?? 0)
+  );
+
+  return total + netMinutes / 60;
+}, 0);
 const completedDays = days.filter(day =>
   !['W', 'OFF', 'HOL', 'NA'].includes(day.code)
 ).length;
@@ -858,6 +897,7 @@ rows.push({
   employee: emp,
   days,
   plannedDays,
+plannedHours: Math.round(plannedHours * 100) / 100,
   completedDays,
   remainingDays,
   presentDays,
@@ -882,148 +922,534 @@ rows.push({
   employeeFilter,
 ]);
 
-  const downloadTimesheetExcel = () => {
+const downloadTimesheetExcel = async () => {
   if (monthlyTimesheet.length === 0) {
-    showToast("No timesheet data to export.", "warning");
+    showToast('No timesheet data to export.', 'warning');
     return;
   }
 
   setIsGenerating(true);
 
   try {
-    const dayHeaders =
-      monthlyTimesheet[0]?.days.map(day => day.date) || [];
+    const workbook = new ExcelJS.Workbook();
 
-    const dayLabels =
-  monthlyTimesheet[0]?.days.map(day => {
-    const date = new Date(`${day.date}T00:00:00Z`);
+    workbook.creator = 'GoldCard Smart Group';
+    workbook.created = new Date();
 
-    const dayNumber = String(date.getUTCDate()).padStart(2, '0');
+    const worksheet = workbook.addWorksheet('Monthly Timesheet', {
+      views: [
+        {
+          state: 'frozen',
+          xSplit: 4,
+          ySplit: 5,
+        },
+      ],
+      pageSetup: {
+        orientation: 'landscape',
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        paperSize: 9,
+        margins: {
+          left: 0.25,
+          right: 0.25,
+          top: 0.5,
+          bottom: 0.5,
+          header: 0.2,
+          footer: 0.2,
+        },
+      },
+    });
 
-    const weekday = date
-      .toLocaleDateString('en-US', {
-        weekday: 'short',
-        timeZone: 'UTC',
-      })
-      .toUpperCase();
+    const days = monthlyTimesheet[0]?.days || [];
 
-    return `${dayNumber} ${weekday}`;
-  }) || [];
+    const dayLabels = days.map(day => {
+      const date = new Date(`${day.date}T00:00:00Z`);
 
-const headers = [
+      const dayNumber = String(date.getUTCDate()).padStart(2, '0');
+
+      const weekday = date
+        .toLocaleDateString('en-US', {
+          weekday: 'short',
+          timeZone: 'UTC',
+        })
+        .toUpperCase();
+
+      return `${dayNumber}\n${weekday}`;
+    });
+
+    const headers = [
   'Employee ID',
   'Employee Name',
+  'Position',
   'Department',
   ...dayLabels,
-  'Plan',
-  'Elapsed',
+          'Plan',
+  'Plan Hours',
+  'Passed',
   'Remaining',
   'Present',
   'Absent',
   'Late',
   'Leave',
-  'Hours',
-];
-
-const rows = monthlyTimesheet.map(row => [
-  row.employee.employeeId || '',
-  row.employee.name || '',
-  row.employee.department || '',
-  ...row.days.map(day => day.code),
-  row.plannedDays,
-  row.completedDays,
-  row.remainingDays,
-  row.presentDays,
-  row.absentDays,
-  row.lateDays,
-  row.leaveDays,
-  row.workedHours,
-]);
-
-    const worksheet = XLSX.utils.aoa_to_sheet([
-  ['Monthly Timesheet'],
-  [`Period: ${startDate} to ${endDate}`],
-  [],
-  headers,
-  ...rows,
-]);
-
-worksheet['!merges'] = [
-  {
-    s: { r: 0, c: 0 },
-    e: { r: 0, c: headers.length - 1 },
-  },
-  {
-    s: { r: 1, c: 0 },
-    e: { r: 1, c: headers.length - 1 },
-  },
-];
-    worksheet['!cols'] = [
-      { wch: 18 },
-      { wch: 32 },
-      { wch: 20 },
-      ...dayHeaders.map(() => ({ wch: 12 })),
-      { wch: 10 },
-      { wch: 10 },
-      { wch: 11 },
-      { wch: 10 },
-      { wch: 10 },
-      { wch: 10 },
-      { wch: 10 },
-      { wch: 10 },
+  'Worked Hours',
     ];
 
-const legendWorksheet = XLSX.utils.aoa_to_sheet([
-  ['Code', 'Meaning'],
-  ['P', 'Present'],
-  ['L', 'Late'],
-  ['HD', 'Half Day'],
-  ['A', 'Absent'],
-  ['W', 'Scheduled'],
-  ['OFF', 'Off'],
-  ['HOL', 'Holiday'],
-  ['AL', 'Annual Leave'],
-  ['CL', 'Casual Leave'],
-  ['SL', 'Sick Leave'],
-  ['DO', 'Day Off'],
-  ['BT', 'Business Trip'],
-  ['ML', 'Maternity Leave'],
-  ['PL', 'Paternity Leave'],
-  ['EL', 'Earned Leave'],
-  ['UL', 'Unpaid Leave'],
-  ['LV', 'Leave'],
-  ['NA', 'Not Applicable'],
-]);
+    const totalColumns = headers.length;
 
-legendWorksheet['!cols'] = [
-  { wch: 12 },
-  { wch: 28 },
+    // ============================================================
+    // TITLE
+    // ============================================================
+
+    worksheet.mergeCells(1, 1, 1, totalColumns);
+
+    const titleCell = worksheet.getCell(1, 1);
+    titleCell.value = 'MONTHLY TIMESHEET';
+    titleCell.font = {
+      name: 'Arial',
+      size: 16,
+      bold: true,
+      color: { argb: 'FFFFFFFF' },
+    };
+    titleCell.alignment = {
+      horizontal: 'center',
+      vertical: 'middle',
+    };
+    titleCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1F4E78' },
+    };
+
+    worksheet.getRow(1).height = 28;
+
+    // ============================================================
+    // PERIOD
+    // ============================================================
+
+    worksheet.mergeCells(2, 1, 2, totalColumns);
+
+    const periodCell = worksheet.getCell(2, 1);
+    periodCell.value = `Period: ${startDate} to ${endDate}`;
+    periodCell.font = {
+      name: 'Arial',
+      size: 11,
+      bold: true,
+    };
+    periodCell.alignment = {
+      horizontal: 'center',
+      vertical: 'middle',
+    };
+
+    worksheet.getRow(2).height = 22;
+
+    // Empty separator row
+    worksheet.getRow(3).height = 8;
+
+    // ============================================================
+    // HEADER
+    // ============================================================
+
+    const headerRow = worksheet.getRow(4);
+
+    headers.forEach((header, index) => {
+      const cell = headerRow.getCell(index + 1);
+
+      cell.value = header;
+
+      cell.font = {
+        name: 'Arial',
+        size: 9,
+        bold: true,
+        color: { argb: 'FFFFFFFF' },
+      };
+
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF4472C4' },
+      };
+
+      cell.alignment = {
+        horizontal: 'center',
+        vertical: 'middle',
+        wrapText: true,
+      };
+
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF808080' } },
+        left: { style: 'thin', color: { argb: 'FF808080' } },
+        bottom: { style: 'thin', color: { argb: 'FF808080' } },
+        right: { style: 'thin', color: { argb: 'FF808080' } },
+      };
+    });
+
+    headerRow.height = 34;
+
+    // ============================================================
+    // EMPLOYEES
+    // ============================================================
+
+    monthlyTimesheet.forEach((row, employeeIndex) => {
+      const excelRowNumber = employeeIndex + 5;
+
+      const values = [
+  row.employee.employeeId || '',
+  row.employee.name || '',
+  row.employee.designation || '',
+  row.employee.department || '',
+  ...row.days.map(day => day.code),
+          row.plannedDays,
+  row.plannedHours,
+  row.completedDays,
+  row.remainingDays,
+        row.presentDays,
+        row.absentDays,
+        row.lateDays,
+        row.leaveDays,
+        Number(row.workedHours.toFixed(2)),
+      ];
+
+      const excelRow = worksheet.getRow(excelRowNumber);
+
+      values.forEach((value, columnIndex) => {
+        const cell = excelRow.getCell(columnIndex + 1);
+
+        cell.value = value;
+
+        cell.font = {
+          name: 'Arial',
+          size: 9,
+        };
+
+        cell.alignment = {
+          horizontal:
+  columnIndex === 1 ||
+  columnIndex === 2 ||
+  columnIndex === 3
+    ? 'left'
+    : 'center',
+          vertical: 'middle',
+          wrapText: false,
+        };
+
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          right: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+        };
+      });
+
+      // Alternating row background
+      if (employeeIndex % 2 === 1) {
+        excelRow.eachCell(cell => {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFF2F2F2' },
+          };
+        });
+      }
+
+      // Attendance code formatting
+      row.days.forEach((day, dayIndex) => {
+        const cell = excelRow.getCell(5 + dayIndex);
+
+        cell.font = {
+          name: 'Arial',
+          size: 8,
+          bold: true,
+        };
+
+        switch (day.code) {
+          case 'P':
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFE2F0D9' },
+            };
+            break;
+
+          case 'L':
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFFFE699' },
+            };
+            break;
+
+          case 'A':
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFF4CCCC' },
+            };
+            break;
+
+          case 'HD':
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFFCE4D6' },
+            };
+            break;
+
+          case 'OFF':
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFD9EAF7' },
+            };
+            break;
+
+          case 'HOL':
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFD9EAD3' },
+            };
+            break;
+
+          case 'W':
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFEDEDED' },
+            };
+            break;
+
+          case 'NA':
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFBFBFBF' },
+            };
+            break;
+
+          default:
+            if (
+              [
+                'AL',
+                'CL',
+                'SL',
+                'DO',
+                'BT',
+                'ML',
+                'PL',
+                'EL',
+                'UL',
+                'LV',
+              ].includes(day.code)
+            ) {
+              cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FFD9D2E9' },
+              };
+            }
+        }
+      });
+
+      excelRow.height = 20;
+    });
+
+// ============================================================
+// TOTAL ROW
+// ============================================================
+
+const totalRowNumber = monthlyTimesheet.length + 5;
+const totalRow = worksheet.getRow(totalRowNumber);
+
+totalRow.getCell(1).value = 'TOTAL';
+worksheet.mergeCells(totalRowNumber, 1, totalRowNumber, 4);
+
+const totalStartColumn = 5 + days.length;
+
+const totals = [
+  monthlyTimesheet.reduce((sum, row) => sum + row.plannedDays, 0),
+Number(
+  monthlyTimesheet
+    .reduce((sum, row) => sum + row.plannedHours, 0)
+    .toFixed(2)
+),
+  monthlyTimesheet.reduce((sum, row) => sum + row.completedDays, 0),
+  monthlyTimesheet.reduce((sum, row) => sum + row.remainingDays, 0),
+  monthlyTimesheet.reduce((sum, row) => sum + row.presentDays, 0),
+  monthlyTimesheet.reduce((sum, row) => sum + row.absentDays, 0),
+  monthlyTimesheet.reduce((sum, row) => sum + row.lateDays, 0),
+  monthlyTimesheet.reduce((sum, row) => sum + row.leaveDays, 0),
+  Number(
+    monthlyTimesheet
+      .reduce((sum, row) => sum + row.workedHours, 0)
+      .toFixed(2)
+  ),
 ];
-    const workbook = XLSX.utils.book_new();
 
-    XLSX.utils.book_append_sheet(
-      workbook,
-      worksheet,
-      'Monthly Timesheet'
-    );
-XLSX.utils.book_append_sheet(
-  workbook,
-  legendWorksheet,
-  'Legend'
-);
-    XLSX.writeFile(
-      workbook,
-      `OpenHRApp_Timesheet_${startDate}_${endDate}.xlsx`
+totals.forEach((value, index) => {
+  totalRow.getCell(totalStartColumn + index).value = value;
+});
+
+totalRow.eachCell({ includeEmpty: true }, cell => {
+  cell.font = {
+    name: 'Arial',
+    size: 9,
+    bold: true,
+    color: { argb: 'FFFFFFFF' },
+  };
+
+  cell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF1F4E78' },
+  };
+
+  cell.alignment = {
+    horizontal: 'center',
+    vertical: 'middle',
+  };
+
+  cell.border = {
+    top: { style: 'thin', color: { argb: 'FF808080' } },
+    left: { style: 'thin', color: { argb: 'FF808080' } },
+    bottom: { style: 'thin', color: { argb: 'FF808080' } },
+    right: { style: 'thin', color: { argb: 'FF808080' } },
+  };
+});
+
+totalRow.height = 22;
+
+    // ============================================================
+    // COLUMN WIDTHS
+    // ============================================================
+
+   worksheet.getColumn(1).width = 16;
+worksheet.getColumn(2).width = 28;
+worksheet.getColumn(3).width = 24;
+worksheet.getColumn(4).width = 22;
+
+days.forEach((_, index) => {
+  worksheet.getColumn(5 + index).width = 6;
+});
+
+const summaryStartColumn = 5 + days.length;
+
+    for (let i = summaryStartColumn; i <= totalColumns; i++) {
+  worksheet.getColumn(i).width = 11;
+}
+
+worksheet.getColumn(totalColumns).width = 14;
+
+   
+    // ============================================================
+    // LEGEND SHEET
+    // ============================================================
+
+    const legendWorksheet = workbook.addWorksheet('Legend');
+
+    const legendData = [
+      ['Code', 'Meaning'],
+      ['P', 'Present'],
+      ['L', 'Late'],
+      ['HD', 'Half Day'],
+      ['A', 'Absent'],
+      ['W', 'Scheduled / Waiting'],
+      ['OFF', 'Scheduled Day Off'],
+      ['HOL', 'Holiday'],
+      ['AL', 'Annual Leave'],
+      ['CL', 'Casual Leave'],
+      ['SL', 'Sick Leave'],
+      ['DO', 'Day Off'],
+      ['BT', 'Business Trip'],
+      ['ML', 'Maternity Leave'],
+      ['PL', 'Paternity Leave'],
+      ['EL', 'Earned Leave'],
+      ['UL', 'Unpaid Leave'],
+      ['LV', 'Leave'],
+      ['NA', 'Not Applicable'],
+    ];
+
+    legendData.forEach((item, index) => {
+      const row = legendWorksheet.getRow(index + 1);
+
+      row.getCell(1).value = item[0];
+      row.getCell(2).value = item[1];
+
+      row.eachCell(cell => {
+        cell.font = {
+          name: 'Arial',
+          size: 10,
+          bold: index === 0,
+        };
+
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          right: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+        };
+
+        cell.alignment = {
+          vertical: 'middle',
+        };
+      });
+
+      if (index === 0) {
+        row.eachCell(cell => {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF4472C4' },
+          };
+
+          cell.font = {
+            name: 'Arial',
+            size: 10,
+            bold: true,
+            color: { argb: 'FFFFFFFF' },
+          };
+        });
+      }
+    });
+
+    legendWorksheet.getColumn(1).width = 14;
+    legendWorksheet.getColumn(2).width = 30;
+
+    // ============================================================
+    // DOWNLOAD
+    // ============================================================
+
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    const blob = new Blob(
+      [buffer],
+      {
+        type:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }
     );
 
-    showToast("Excel timesheet exported successfully.", "success");
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download =
+      `GoldCard_Timesheet_${startDate}_${endDate}.xlsx`;
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    URL.revokeObjectURL(url);
+
+    showToast('Excel timesheet exported successfully.', 'success');
   } catch (error: any) {
-    console.error("Timesheet Excel export failed:", error);
+    console.error('Timesheet Excel export failed:', error);
 
     showToast(
-      "Failed to export Excel timesheet: " +
+      'Failed to export Excel timesheet: ' +
         (error?.message || error),
-      "error"
+      'error'
     );
   } finally {
     setIsGenerating(false);
@@ -1630,10 +2056,17 @@ XLSX.utils.book_append_sheet(
 </th>
 
 <th
+  className="px-3 py-2 border-b border-r border-slate-100 text-center min-w-[78px] bg-indigo-50 text-indigo-700"
+  title="Total planned working hours excluding unpaid breaks"
+>
+  Plan Hours
+</th>
+
+<th
   className="px-3 py-2 border-b border-r border-slate-100 text-center min-w-[70px] bg-slate-50 text-slate-700"
   title="Scheduled working days that have already occurred"
 >
-  Elapsed
+  Passed
 </th>
 
 <th className="px-3 py-2 border-b border-r border-slate-100 text-center min-w-[70px] bg-indigo-50 text-indigo-600">
@@ -1734,7 +2167,12 @@ XLSX.utils.book_append_sheet(
 <td className="px-3 py-3 border-b border-r border-l-2 border-slate-200 text-center font-bold text-indigo-700 bg-indigo-50/40">
   {row.plannedDays}
 </td>
-
+<td
+  className="px-3 py-3 border-b border-r border-slate-100 text-center font-bold text-indigo-700 bg-indigo-50/40"
+  title="Planned working hours excluding unpaid breaks"
+>
+  {row.plannedHours.toFixed(2)}
+</td>
 <td className="px-3 py-3 border-b border-r border-slate-100 text-center font-bold text-slate-700 bg-slate-50/40">
   {row.completedDays}
 </td>
